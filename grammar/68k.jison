@@ -442,7 +442,7 @@ indirect
 
 number
   : NUMBER
-0    { $$ = { type: NodeType.Number, path: yy.path, value: parseNumber($1) }; }
+    { $$ = { type: NodeType.Number, path: yy.path, value: parseNumber($1) }; }
   ;
 
 expr
