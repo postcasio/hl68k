@@ -13,6 +13,12 @@ bank rom_data {
 }
 
 bank ram_system {
-	@ram_start = $FF0000
+	@start = $FF0000
 	@size = $FFFF
+}
+
+bank rom_script {
+	@rom = 1
+	@start = $10000
+	@size = $10000
 }

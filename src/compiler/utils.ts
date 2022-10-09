@@ -1,5 +1,6 @@
 import { encode, OperandSize } from "../arch/68k/instructions";
-import { NodeType, ASTNode, ASTExpressionNode, ASTIdentifierNode, ASTImmediateNode, ASTIndirectNode, ASTNumberNode, ASTStatementNode, ASTBlockLevelNode, ASTStringNode, ASTAbsoluteNode, ASTRegisterListNode, ASTInstructionNode } from "../parser";
+import { NodeType, ASTNode, ASTExpressionNode, ASTIdentifierNode, ASTImmediateNode, ASTIndirectNode, ASTNumberNode, ASTStatementNode, ASTBlockLevelNode, ASTStringNode, ASTAbsoluteNode, ASTRegisterListNode, ASTInstructionNode, ASTLabelNode } from "../parser";
+import { Block } from "./block";
 import { Program } from "./program";
 
 export function isIdentifier(node: ASTNode): node is ASTIdentifierNode {
@@ -33,6 +34,10 @@ export function isSRRegisterIdentifier(identifier: ASTIdentifierNode) {
   return srRegisterRe.test(identifier.identifier);
 }
 
+export function isRegister(identifier: ASTIdentifierNode) {
+  return identifier.isRegister;
+}
+
 
 export function getRegisterNumber(operand: ASTIdentifierNode) {
   if (operand.identifier === 'sp') {
@@ -42,8 +47,13 @@ export function getRegisterNumber(operand: ASTIdentifierNode) {
   return parseInt(operand.identifier.substr(-1), 10);
 }
 
-export function isStatement(statement: ASTBlockLevelNode): statement is ASTStatementNode {
+
+export function isStatement(statement: ASTNode): statement is ASTStatementNode {
   return statement.type === NodeType.Statement;
+}
+
+export function isLabel(statement: ASTNode): statement is ASTLabelNode {
+  return statement.type === NodeType.Label;
 }
 
 export function isInstruction(statement: ASTNode): statement is ASTInstructionNode {
@@ -72,7 +82,7 @@ export function isString(str: ASTExpressionNode): str is ASTStringNode {
 
 export function asIdentifier(node: ASTExpressionNode): ASTIdentifierNode {
   if (!isIdentifier(node)) {
-    throw new Error(`node must be an identifier, not ${node.type}`);
+    throw new Error(`node must be an identifier, not ${node.type} ${JSON.stringify(node)}`);
   }
 
   return node;
@@ -126,14 +136,25 @@ export function createNumberFromString(string: ASTStringNode): ASTNumberNode {
   return { type: NodeType.Number, value, path: string.path };
 }
 
+export function createBytesFromString(string: ASTStringNode): number[] {
+  const str = string.value;
+  const bytes = [];
+
+  for (let i = 0; i < str.length; i++) {
+    bytes.push(str.charCodeAt(i));
+  }
+
+  return bytes;
+}
+
 export function isNumber(value: ASTExpressionNode): value is ASTNumberNode {
   return value.type === NodeType.Number;
 }
 
-export function calculateCodeSize(nodes: ASTBlockLevelNode[], program: Program) {
+export function calculateCodeSize(nodes: ASTBlockLevelNode[], program: Program, block: Block, offset: number) {
   return nodes.reduce((size: number, node: ASTBlockLevelNode) => {
     if (node.type === NodeType.Statement) {
-      size += encode(node.instruction, program, 0).length;
+      size += encode(node.instruction, program, block, offset + size).length;
     }
 
     return size;

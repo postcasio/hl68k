@@ -1,10 +1,14 @@
 import { dirname, resolve } from "path";
 import { Compiler } from ".";
+import { OperandSize } from "../arch/68k/instructions";
 import { NodeType, ASTNode, ASTUnitNode, ASTInstructionNode, ASTMacroNode, ASTBlockLevelNode, ASTExpressionNode, ASTStatementNode } from "../parser";
 import { Bank } from "./bank";
 import { Block } from "./block";
+import { Macro } from "./macro";
 import { Program } from "./program";
-import { asIdentifier, calculateCodeSize, isIdentifier, isIndirect, isInstruction, isStatement } from "./utils";
+import { Struct } from "./struct";
+import { encodeTableBytes, Table } from "./table";
+import { asIdentifier, asNumber, calculateCodeSize, createNumber, isIdentifier, isIndirect, isInstruction, isStatement } from "./utils";
 
 
 export type UnitLoader = (file: string) => ASTUnitNode;
@@ -21,9 +25,6 @@ export class InitPass {
       switch (node.type) {
         case NodeType.Assignment:
           program.setGlobal(node.name, node.value);
-          break;
-        case NodeType.Macro:
-          program.setMacro(node.name, node);
           break;
         case NodeType.Include:
           const path = resolve(dirname(node.path), node.file.value);
@@ -46,6 +47,7 @@ export class InitPass {
               case 'ram_start': bank.ram_start = property.value; ram_start_defined = true; break;
               case 'size': bank.size = property.value; break;
               case 'rom': bank.rom = property.value; break;
+              case 'align': bank.align = property.value; break;
             }
           }
 
@@ -56,35 +58,65 @@ export class InitPass {
           program.banks.push(bank);
 
           break;
+        case NodeType.Macro:
+          const macro = new Macro(node.name);
+          macro.arguments = node.arguments;
+          macro.code = node.code;
+          program.setMacro(node.name, macro);
+          console.log(`Created macro ` + node.name);
+          break;
+        case NodeType.Table:
+          const table = new Table(node.name, node.entries.map(entry => ({
+            left: encodeTableBytes(entry.left, program),
+            right: encodeTableBytes(entry.right, program)
+          })));
+
+          program.setTable(node.name, table);
+          break;
+        case NodeType.Struct:
+          const struct = new Struct(node.name, node.members);
+          program.setStruct(node.name, struct);
+          let structMemberOffset = 0;
+          for (let [name, def] of Object.entries(struct.members)) {
+            program.setGlobal(`${node.name}.${name}`, createNumber(structMemberOffset, node.path));
+            switch (def.operandSize) {
+              case OperandSize.Byte:
+                structMemberOffset += 1 * asNumber(program.evaluate(def.count)).value;
+                break;
+              case OperandSize.Word:
+                structMemberOffset += 2 * asNumber(program.evaluate(def.count)).value;
+                break;
+              case OperandSize.Long:
+                structMemberOffset += 4 * asNumber(program.evaluate(def.count)).value;
+                break;
+            }
+          }
+          break;
         case NodeType.Block:
           const block = new Block(node.name);
           let blockBankName: string = '<no name>';
-
+          let blockAlign = 2;
+          let blockTable;
           for (const property of node.properties) {
             switch (property.name) {
               case 'bank': blockBankName = asIdentifier(property.value).identifier; break;
+              case 'align': blockAlign = asNumber(program.evaluate(property.value)).value; break;
+              case 'table': blockTable = asIdentifier(property.value).identifier; break;
             }
           }
 
-          block.code = node.code.flatMap((node) => {
-            if (isStatement(node)) {
-              const macro = program.getMacro(node.instruction.mnemonic);
-
-              if (macro) {
-                return this.macroReplace(node.instruction, macro);
-              }
-            }
-
-            return node;
-          }) as ASTBlockLevelNode[];
-          block.codeSize = calculateCodeSize(block.code, program);
+          block.code = node.code;
+          block.align = blockAlign;
+          if (blockTable) {
+            block.table = program.getTable(blockTable);
+          }
 
           const blockBank = program.banks.find(bank => bank.name === blockBankName);
 
           if (!blockBank) {
-            throw new Error(`Bank ${blockBankName} does not exist`);
+            throw new Error(`Bank ${blockBankName} does not exist ${JSON.stringify(node)}`);
           }
-
+          console.log(`Created block ${block.name}`);
           blockBank.blocks.push(block);
       }
     }
@@ -92,60 +124,5 @@ export class InitPass {
     return program;
   }
 
-  macroReplace(instruction: ASTInstructionNode, macro: ASTMacroNode): ASTNode[] {
-    const argumentIndexes = macro.arguments.reduce((r, arg, i) => {
-      r[arg] = i;
 
-      return r;
-    }, {} as Record<string, number>);
-
-    const result = this.walk(macro.code, (node) => {
-      if (isIdentifier(node) && argumentIndexes[node.identifier] !== undefined) {
-        return {...instruction.arguments[argumentIndexes[node.identifier]]};
-      }
-      return node;
-    }) as ASTNode[];
-
-    return result;
-  }
-
-  walk(node: ASTNode | ASTNode[] | undefined, callback: (node: ASTNode) => ASTNode): ASTNode | ASTNode[] | undefined {
-    if (Array.isArray(node)) {
-      return node.map((arrayNode) => this.walk(arrayNode, callback) as ASTNode);
-    }
-
-    if (node === undefined) {
-      return undefined;
-    }
-
-    const astNode = node as ASTNode;
-
-    switch (astNode.type) {
-      case NodeType.Statement:
-        return callback({ ...astNode, instruction: this.walk(astNode.instruction, callback) as unknown as ASTInstructionNode});
-      case NodeType.Instruction:
-        return callback({ ...astNode, arguments: this.walk(astNode.arguments, callback) as unknown as ASTExpressionNode[]});
-      case NodeType.Indirect:
-        return callback({
-          ...astNode,
-          value: this.walk(astNode.value, callback) as unknown as ASTExpressionNode,
-          displacement: this.walk(astNode.displacement, callback) as unknown as ASTExpressionNode,
-          index: this.walk(astNode.index, callback) as unknown as ASTExpressionNode
-        });
-      case NodeType.Addition:
-      case NodeType.Subtraction:
-      case NodeType.Multiplication:
-      case NodeType.Division:
-      case NodeType.LeftShift:
-      case NodeType.RightShift:
-      case NodeType.BitwiseOr:
-        return callback({ ...astNode, left: this.walk(astNode.left, callback) as ASTExpressionNode, right: this.walk(astNode.right, callback) as ASTExpressionNode });
-      case NodeType.UnaryMinus:
-      case NodeType.Immediate:
-      case NodeType.Absolute:
-        return callback({ ...astNode, value: this.walk(astNode.value, callback) as ASTExpressionNode });
-    }
-
-    return callback({ ...astNode });
-  }
 }

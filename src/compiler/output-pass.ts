@@ -34,6 +34,12 @@ export class OutputPass {
       ramOffset = asNumber(this.program.evaluate(bank.ram_start)).value;
 
       for (const block of bank.blocks) {
+        if (block.align !== 1) {
+          const pad = ((romOffset) % block.align);
+
+          ramOffset += pad === 0 ? 0 : block.align - pad;
+          romOffset += pad === 0 ? 0 : block.align - pad;
+        }
         // console.log(`Block ${block.name} at ${romOffset}`);
         const blockBuffer = this.writeBlock(block, ramOffset);
         romBuffer.set(new Uint8Array(blockBuffer), romOffset);
@@ -54,7 +60,7 @@ export class OutputPass {
     for (const node of block.code) {
       switch (node.type) {
         case NodeType.Statement:
-          const code = this.emit(node, bankOffset + offset);
+          const code = this.emit(node, block, bankOffset + offset);
           view.set(code, offset);
           offset += code.length;
           break;
@@ -66,11 +72,11 @@ export class OutputPass {
     return view.buffer;
   }
 
-  size(node: ASTStatementNode) {
-    return encode(node.instruction, this.program, 0).length;
+  size(node: ASTStatementNode, block: Block) {
+    return encode(node.instruction, this.program, block, 0).length;
   }
 
-  emit(node: ASTStatementNode, offset: number) {
-    return encode(node.instruction, this.program, offset);
+  emit(node: ASTStatementNode, block: Block, offset: number) {
+    return encode(node.instruction, this.program, block, offset);
   }
 }

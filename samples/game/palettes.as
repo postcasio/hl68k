@@ -1,17 +1,18 @@
-block (@bank = rom_code) {
-begin_write_vdp_cram $0
-LoadPalettes:
-    move.l #$C0000000,(VDP_CONTROL) ; set up VDP write to CRAM
-    mulu #$10,d0	; multiply number of palettes by 16
-    sub.w #$01,d0	; subtract 1 since the loop counts to 0
-LoadPaletteLoop:
-    move.w (a0)+,($00C00000)	; write the palette data
-    dbf d0,LoadPaletteLoop		; decrement value of d0 and loop if not 0
+block palette_code (@bank = rom_code) {
+
+load_palette:
+    vdp_begin_write VDP_CRAM_WRITE, d0
+
+    move.l #8, d0
+    subi.l #$01, d0
+.loop:
+    vdp_write (a0)+
+    dbf d0, .loop
     rts
 }
 
-block (@bank = rom_data) {
-PaletteSpring:
+block palette_data (@bank = rom_data) {
+palette_spring:
     dc.w	$0F0F	; rgb(240,000,240) => 1111 0000 1111 => 0F0F
     dc.w	$0115	; rgb(080,048,032) => 0010 0011 0101 => 0115
     dc.w	$0356	; rgb(096,080,048) => 0011 0101 0110 => 0356
@@ -29,7 +30,7 @@ PaletteSpring:
     dc.w	$0F95	; rgb(080,144,240) => 1111 1001 0101 => 0F95
     dc.w	$079A	; rgb(160,144,112) => 0111 1001 1010 => 079A
 
-PaletteSummer:
+palette_summer:
     dc.w	$0F0F	; rgb(240,000,240) => 1111 0000 1111 => 0F0F
     dc.w	$0115	; rgb(080,048,032) => 0010 0011 0101 => 0115
     dc.w	$0356	; rgb(096,080,048) => 0011 0101 0110 => 0356
@@ -47,7 +48,7 @@ PaletteSummer:
     dc.w	$056D	; rgb(208,096,080) => 0101 0110 1101 => 056D
     dc.w	$0899	; rgb(144,144,128) => 1000 1001 1001 => 0899
 
-PaletteFall:
+palette_fall:
     dc.w	$0F0F	; rgb(240,000,240) => 1111 0000 1111 => 0F0F
     dc.w	$0115	; rgb(080,048,032) => 0010 0011 0101 => 0115
     dc.w	$0356	; rgb(096,080,048) => 0011 0101 0110 => 0356
@@ -65,7 +66,7 @@ PaletteFall:
     dc.w	$03CF	; rgb(240,192,048) => 0011 1100 1111 => 03CF
     dc.w	$0DEE	; rgb(224,224,208) => 1101 1110 1110 => 0DEE
 
-PaletteWinter:
+palette_winter:
     dc.w	$0F0F	; rgb(240,000,240) => 1111 0000 1111 => 0F0F
     dc.w	$0115	; rgb(080,048,032) => 0010 0011 0101 => 0115
     dc.w	$0356	; rgb(096,080,048) => 0011 0101 0110 => 0356
@@ -82,4 +83,22 @@ PaletteWinter:
     dc.w	$0358	; rgb(128,080,048) => 0011 0101 1000 => 0358
     dc.w	$0345	; rgb(080,064,048) => 0011 0100 0101 => 0345
     dc.w	$0DCC	; rgb(192,192,208) => 1101 1100 1100 => 0DCC
+
+palette_system:
+    dc.w $0000
+    dc.w $FFFF
+    dc.w $0666
+    dc.w $0DDD
+    dc.w $0444
+    dc.w $000A
+    dc.w $00A0
+    dc.w $0A00
+    dc.w $00AA
+    dc.w $0AA0
+    dc.w $0A0A
+    dc.w $0222
+    dc.w $0777
+    dc.w $0888
+    dc.w $0AAA
+    dc.w $0BBB
 }

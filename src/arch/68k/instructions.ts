@@ -1,4 +1,7 @@
 import { assert } from "console";
+import { readFileSync } from "fs";
+import { dirname, resolve } from "path";
+import { Block } from "../../compiler/block";
 import { Program } from "../../compiler/program";
 import { asAbsolute, asIdentifier, asIndirect, asNumber, asString, getRegisterNumber, isAbsolute, isAddressRegisterIdentifier, isDataRegisterIdentifier, isIdentifier, isImmediate, isIndirect, isNumber, isPCRegisterIdentifier, isRegisterList, isSRRegisterIdentifier, isString, isUSPRegisterIdentifier } from "../../compiler/utils";
 import { ASTExpressionNode, ASTInstructionNode, ASTRegisterListNode, NodeType } from "../../parser"
@@ -7,7 +10,8 @@ export enum OperandSize {
   Byte = 1,
   Word = 1 << 1,
   Long = 1 << 2,
-  Short = 1 << 3
+  Short = 1 << 3,
+  MacroArg = 1 << 10
 }
 
 type ConditionalType = 'T' | 'F' | 'HI' | 'LS' | 'CC' | 'CS' | 'NE' | 'EQ' | 'VC' | 'VS' | 'PL' | 'MI' | 'GE' | 'LT' | 'GT' | 'LE';
@@ -48,6 +52,7 @@ export function getOperandSize(size: string) {
     case 'b': return OperandSize.Byte;
     case 'w': return OperandSize.Word;
     case 'l': return OperandSize.Long;
+    case '$': return OperandSize.MacroArg;
   }
 
   return 0;
@@ -227,6 +232,8 @@ export interface Instruction {
   mnemonic: string;
   format?: number;
   sizeOffset?: number;
+  unsized?: boolean;
+  sizeOverridesAbsolute?: boolean;
   effectiveAddressOffset?: number;
   destinationEffectiveAddressOffset?: number;
   destinationEffectiveAddressSwapped?: boolean;
@@ -246,7 +253,8 @@ export interface Instruction {
   sizeType?: SizeType;
   addressingModes?: AddressingMode[];
   relativeTarget?: boolean;
-  encoder?: (instruction: ASTInstructionNode, program: Program, offset: number) => number[] | number | undefined;
+  signedTarget?: boolean;
+  encoder?: (instruction: ASTInstructionNode, program: Program, block: Block, offset: number) => number[] | number | undefined;
 }
 
 function getRegisterListMask(registerList: ASTRegisterListNode, reverse: boolean = false): number {
@@ -295,11 +303,13 @@ function getRegisterListMask(registerList: ASTRegisterListNode, reverse: boolean
   return mask;
 }
 
-export function encode(instructionNode: ASTInstructionNode, program: Program, offset: number = 0) {
+export function encode(instructionNode: ASTInstructionNode, program: Program, block: Block, offset: number) {
   const {mnemonic, size: operandSize} = instructionNode;
 
   if (!instructions[mnemonic]) {
-    throw new Error(`Can't encode unknown instruction: ${mnemonic}`);
+    // console.log(JSON.stringify(instructionNode));
+    // console.log(JSON.stringify(block, undefined, 2));
+    throw new Error(`Can't encode unknown instruction: ${mnemonic} ${JSON.stringify(instructionNode)}`);
   }
 
   const instruction = instructions[mnemonic];
@@ -307,7 +317,7 @@ export function encode(instructionNode: ASTInstructionNode, program: Program, of
 
   let encoded = undefined;
   if (instruction.encoder) {
-    encoded = instruction.encoder(instructionNode, program, offset);
+    encoded = instruction.encoder(instructionNode, program, block, offset);
   }
 
   if (Array.isArray(encoded)) {
@@ -330,7 +340,9 @@ export function encode(instructionNode: ASTInstructionNode, program: Program, of
 
   if (!instructionWord) {
     if (instruction.sizes !== undefined) {
-      assert(instruction.sizes & size, `${size} is not a valid size for ${mnemonic}`);
+      if (!(instruction.sizes & size)) {
+        throw new Error(`${size} is not a valid size for ${mnemonic}`);
+      }
     }
     else if (instruction.size !== undefined) {
       size = instruction.size;
@@ -370,13 +382,13 @@ export function encode(instructionNode: ASTInstructionNode, program: Program, of
       assert(instruction.directionOffset !== undefined, `instruction ${instruction.mnemonic} accepting a register list must have a directionOffset`);
 
       let registerListIndex = isRegisterList(instructionNode.arguments[0]) ? 0 : 1;
-
+      let nonRegisterListIndex = registerListIndex === 0 ? 1 : 0;
       if (registerListIndex === 0) {
         mainArgument = 1;
         destinationArgument = 0;
       }
 
-      const reverse = asIndirect(instructionNode.arguments[mainArgument]).predecrement !== undefined;
+      const reverse = asIndirect(instructionNode.arguments[nonRegisterListIndex]).predecrement !== undefined;
 
       instructionWord |= registerListIndex << (instruction.directionOffset!);
 
@@ -416,7 +428,7 @@ export function encode(instructionNode: ASTInstructionNode, program: Program, of
       let sourceRegister = 0;
 
       if (isIdentifier(sourceArg)) {
-        assert(isAddressRegisterIdentifier(sourceArg) || isDataRegisterIdentifier(sourceArg), 'destination argument must be a register');
+        assert(isAddressRegisterIdentifier(sourceArg) || isDataRegisterIdentifier(sourceArg), 'source argument must be a register');
 
         sourceRegister = getRegisterNumber(sourceArg);
       }
@@ -448,12 +460,12 @@ export function encode(instructionNode: ASTInstructionNode, program: Program, of
     }
 
     if (size === OperandSize.Short && arg === 0) {
-      instructionWord |= encodeValue(asNumber(program.evaluate(operand)).value - (instruction.relativeTarget ? (offset + 2) : 0), OperandSize.Short)[0];
+      instructionWord |= encodeValue(asNumber(program.evaluate(operand, block)).value - (instruction.relativeTarget ? (offset + 2) : 0), OperandSize.Short, instruction.signedTarget)[0];
     }
     else {
       switch (addressingMode) {
         case AddressingMode.Immediate:
-          extensionBytes.push(...encodeValue(asNumber(program.evaluate(operand)).value - (instruction.relativeTarget ? (offset + 2) : 0), size));
+          extensionBytes.push(...encodeValue(asNumber(program.evaluate(operand, block)).value - (instruction.relativeTarget ? (offset + 2) : 0), size, instruction.signedTarget));
           break;
         case AddressingMode.AddressRegisterIndirectIndexDisplacement:
         case AddressingMode.ProgramCounterIndirectIndexDisplacement:
@@ -467,13 +479,17 @@ export function encode(instructionNode: ASTInstructionNode, program: Program, of
           if (indirectIndexDisplacementOp.indexSize === OperandSize.Long) {
             extensionWord |= 1 << 11;
           }
-          extensionWord |= asNumber(program.evaluate(indirectIndexDisplacementOp.displacement!)).value & 0x7F;
+
+          const indirectIndexDisplacement = asNumber(program.evaluate(indirectIndexDisplacementOp.displacement!, block)).value - (addressingMode === AddressingMode.ProgramCounterIndirectIndexDisplacement ? (offset + 2) : 0)
+          extensionWord |= encodeShort(indirectIndexDisplacement)[0];
           extensionBytes.push((extensionWord & 0xff00) >> 8, extensionWord & 0xff);
           break;
         case AddressingMode.AddressRegisterIndirectDisplacement:
         case AddressingMode.ProgramCounterIndirectDisplacement:
           const indirectDisplacementOp = asIndirect(operand);
-          extensionBytes.push(...encodeValue(asNumber(program.evaluate(indirectDisplacementOp.displacement!)).value, OperandSize.Word));
+          const indirectDisplacement = asNumber(program.evaluate(indirectDisplacementOp.displacement!, block)).value - (addressingMode === AddressingMode.ProgramCounterIndirectDisplacement ? (offset + 2) : 0)
+
+          extensionBytes.push(...encodeValue(indirectDisplacement, OperandSize.Word));
           break;
         case AddressingMode.AbsoluteLong:
         case AddressingMode.AbsoluteShort:
@@ -482,15 +498,18 @@ export function encode(instructionNode: ASTInstructionNode, program: Program, of
           if (isAbsolute(operand)) {
             absSize = operand.size;
           }
-          else if (instruction.overrideAbsoluteSize !== undefined) {
-            absSize = instruction.overrideAbsoluteSize;
+          else if (instruction.sizeOverridesAbsolute) {
+            absSize = instructionNode.size || instruction.size || instruction.defaultSize || OperandSize.Long;
           }
           else {
-            absSize = OperandSize.Long;
+            absSize = instruction.defaultSize || OperandSize.Long;
+            // absSize = instructionNode.size || instruction.defaultSize || OperandSize.Long;
           }
 
-          extensionBytes.push(...encodeValue(asNumber(program.evaluate(operand)).value, absSize));
+          extensionBytes.push(...encodeValue(asNumber(program.evaluate(operand, block)).value - (instruction.relativeTarget ? (offset + 2) : 0), absSize, instruction.signedTarget));
 
+          break;
+        default:
           break;
       }
     }
@@ -499,28 +518,37 @@ export function encode(instructionNode: ASTInstructionNode, program: Program, of
   return [(instructionWord & 0xff00) >> 8, instructionWord & 0xff, ...extensionBytes];
 }
 
-function encodeShort(value: number) {
-  return [value < 0 ? ((~Math.abs(value + 1) & 0x7F) | 0x80) : value & 0x7f];
+function encodeShort(value: number, signed = false) {
+  const compl = signed ? (value < 0 ? ((~Math.abs(value + 1) & 0x7F) | 0x80) : value & 0x7f) : value & 0xff;
+
+  return [compl];
 }
 
-function encodeByte(value: number) {
-  return [0, value & 0xff];
+function encodeByte(value: number, signed = false) {
+  const compl = signed ? (value < 0 ? ((~Math.abs(value + 1) & 0x7F) | 0x80) : value & 0x7f) : value & 0xff;
+
+  return [0, compl & 0xff];
 }
 
-function encodeWord(value: number) {
-  return [(value & 0xff00) >> 8, value & 0xff];
+function encodeWord(value: number, signed = false) {
+  const compl = signed ? (value < 0 ? ((~Math.abs(value + 1) & 0x7FFF) | 0x8000) : value & 0x7FFF) : value & 0xFFFF;
+  return [(compl & 0xff00) >> 8, compl & 0xff];
 }
 
-function encodeLong(value: number) {
-  return [(value & 0xff000000) >> 24, (value & 0xff0000) >> 16, (value & 0xff00) >> 8, value & 0xff];
+function encodeLong(value: number, signed = false) {
+  const compl = signed ? (value < 0 ? ((~Math.abs(value + 1) & 0x7FFFFFFF) | 0x80000000) : value & 0x7FFFFFFF) : value & 0xFFFFFFFF;
+  return [(compl & 0xff000000) >> 24, (compl & 0xff0000) >> 16, (compl & 0xff00) >> 8, compl & 0xff];
 }
 
-function encodeValue(value: number, size: OperandSize): number[] {
+function encodeValue(value: number, size: OperandSize, signed: boolean = false): number[] {
+  if (value < 0) {
+    signed = true;
+  }
   switch (size) {
-    case OperandSize.Short: return encodeShort(value);
-    case OperandSize.Byte: return encodeByte(value);
-    case OperandSize.Word: return encodeWord(value);
-    case OperandSize.Long: return encodeLong(value);
+    case OperandSize.Short: return encodeShort(value, signed);
+    case OperandSize.Byte: return encodeByte(value, signed);
+    case OperandSize.Word: return encodeWord(value, signed);
+    case OperandSize.Long: return encodeLong(value, signed);
   }
 
   throw new Error('Invalid size: ' + size);
@@ -532,19 +560,28 @@ const instructions: Record<string, Instruction> = {};
 instructions['dc'] = {
   mnemonic: 'dc',
   sizes: OperandSize.Byte | OperandSize.Word | OperandSize.Long,
-  encoder: (instruction: ASTInstructionNode, program: Program, offset: number) => {
+  encoder: (instruction: ASTInstructionNode, program: Program, block: Block, offset: number) => {
     const {mnemonic, size: operandSize} = instruction;
 
     return instruction.arguments.reduce((encoded, arg) => {
-      const value = program.evaluate(arg);
+      const value = program.evaluate(arg, block);
 
       if (isNumber(value)) {
-        encoded.push(...encodeValue(value.value, operandSize))
+        encoded.push(...encodeValue(value.value, operandSize === OperandSize.Byte ? OperandSize.Short : operandSize))
       }
       else if (isString(value)) {
         const str = value.value;
+        const stringBytes = [];
+
         for (let j = 0; j < str.length; j++) {
-          encoded.push(str.charCodeAt(j));
+          stringBytes.push(str.charCodeAt(j));
+        }
+
+        if (block.table) {
+          encoded.push(...block.table.encode(stringBytes));
+        }
+        else {
+          encoded.push(...stringBytes);
         }
       }
 
@@ -553,19 +590,45 @@ instructions['dc'] = {
   }
 };
 
+instructions['.align'] = {
+  mnemonic: '.align',
+  encoder: (instruction: ASTInstructionNode, program: Program, block: Block, offset: number) => {
+    const {mnemonic, size: operandSize} = instruction;
+    const alignment = asNumber(program.evaluate(instruction.arguments[0], block)).value;
+
+    const padding = alignment - (offset % alignment);
+
+    return Array(padding).fill(0);
+  }
+};
+
+instructions['.incbin'] = {
+  mnemonic: '.incbin',
+  encoder: (instruction: ASTInstructionNode, program: Program, block: Block, offset: number) => {
+    const {mnemonic, size: operandSize} = instruction;
+    const file = asString(program.evaluate(instruction.arguments[0], block)).value;
+    return [...readFileSync(resolve(dirname(instruction.path), file))];
+  }
+};
+
 instructions['ds'] = {
   mnemonic: 'ds',
   sizes: OperandSize.Byte | OperandSize.Word | OperandSize.Long,
-  encoder: (instruction: ASTInstructionNode, program: Program, offset: number) => {
+  encoder: (instruction: ASTInstructionNode, program: Program, block: Block, offset: number) => {
     const {mnemonic, size: operandSize} = instruction;
 
     const byteSize = operandByteSizes[operandSize];
+    const count = asNumber(program.evaluate(instruction.arguments[0], block)).value;
 
-    return instruction.arguments.reduce((encoded, arg) => {
-      const value = asNumber(program.evaluate(arg)).value;
+    const fillBytes =  instruction.arguments.length > 1
+    ? instruction.arguments.slice(1).map((arg) => {
+        return encodeValue(asNumber(program.evaluate(arg, block)).value, operandSize, false)
+      }).flat()
+    : [0];
+      // console.log(Math.ceil((count * byteSize) / fillBytes.length));
+    const bytes = Array(Math.ceil((count * byteSize) / fillBytes.length)).fill(fillBytes).flat();
 
-      return encoded.concat(Array(value * byteSize).fill(0));
-    }, [] as number[]);
+    return bytes.slice(0, count * byteSize);
   }
 };
 
@@ -610,8 +673,9 @@ instructions['move'] = {
   effectiveAddressOffset: 5,
   destinationEffectiveAddressOffset: 11,
   destinationEffectiveAddressSwapped: true,
-  encoder: (instruction: ASTInstructionNode, program: Program, offset: number) => {
+  encoder: (instruction: ASTInstructionNode, program: Program, block: Block, offset: number) => {
     assert(instruction.arguments.length === 2);
+
     const first = instruction.arguments[0];
     const second = instruction.arguments[1];
     const firstIsIdentifier = isIdentifier(first);
@@ -629,10 +693,10 @@ instructions['move'] = {
       instructionWord = 0b0100_1110_0110_0000 | (regArg << 3) | getRegisterNumber(asIdentifier(firstIsUSP ? second : first));
     }
     else if (firstIsSR) {
-      instructionWord = 0b0100_0010_1100_0000 | getEffectiveAddress(second);
+      instructionWord = 0b0100_0000_1100_0000 | getEffectiveAddress(second);
     }
     else if (secondIsSR) {
-      instructionWord = 0b0100_0100_1100_0000 | getEffectiveAddress(first);
+      instructionWord = 0b0100_0110_1100_0000 | getEffectiveAddress(first);
     }
 
     return instructionWord;
@@ -715,6 +779,7 @@ instructions['bra'] = {
   sizes: OperandSize.Short | OperandSize.Word,
   defaultSize: OperandSize.Short,
   relativeTarget: true,
+  signedTarget: true,
   overrideAbsoluteSize: OperandSize.Short
 }
 
@@ -723,7 +788,6 @@ instructions['jsr'] = {
   format: 0b0100_1110_1000_0000,
   arguments: 1,
   addressingModes: [
-    AddressingMode.Immediate |
     AddressingMode.AddressRegisterIndirect |
     AddressingMode.AddressRegisterIndirectDisplacement |
     AddressingMode.AddressRegisterIndirectIndexDisplacement |
@@ -732,8 +796,28 @@ instructions['jsr'] = {
     AddressingMode.ProgramCounterIndirectDisplacement |
     AddressingMode.ProgramCounterIndirectIndexDisplacement
   ],
+  effectiveAddressOffset: 5,
+  size: OperandSize.Long,
+  unsized: true
+};
+
+instructions['jmp'] = {
+  mnemonic: 'jmp',
+  format: 0b0100_1110_1100_0000,
+  arguments: 1,
+  addressingModes: [
+    AddressingMode.AddressRegisterIndirect |
+    AddressingMode.AddressRegisterIndirectDisplacement |
+    AddressingMode.AddressRegisterIndirectIndexDisplacement |
+    AddressingMode.AbsoluteShort |
+    AddressingMode.AbsoluteLong |
+    AddressingMode.ProgramCounterIndirectDisplacement |
+    AddressingMode.ProgramCounterIndirectIndexDisplacement
+  ],
+  size: OperandSize.Long,
+  unsized: true,
   effectiveAddressOffset: 5
-}
+};
 
 for (const conditionalType of validBranchConditionalBits as ConditionalType[]) {
   const mnemonic = `b${conditionalType.toLowerCase()}`;
@@ -744,7 +828,9 @@ for (const conditionalType of validBranchConditionalBits as ConditionalType[]) {
     addressingModes: [AddressingMode.AbsoluteLong],
     sizes: OperandSize.Short | OperandSize.Word,
     relativeTarget: true,
-    overrideAbsoluteSize: OperandSize.Short
+    defaultSize: OperandSize.Short,
+    sizeOverridesAbsolute: true
+    // overrideAbsoluteSize: OperandSize.Short
   };
 }
 
@@ -758,9 +844,11 @@ for (const conditionalType of validTestDecrementBranchConditionalBits as Conditi
     size: OperandSize.Word,
     relativeTarget: true,
     sourceRegisterOffset: 2,
-    overrideAbsoluteSize: OperandSize.Word
+    defaultSize: OperandSize.Word
   };
 }
+
+instructions['dbra'] = instructions['dbf'];
 
 instructions['lea'] = {
   mnemonic: 'lea',
@@ -780,6 +868,27 @@ instructions['lea'] = {
   ],
   size: OperandSize.Long
 }
+
+instructions['cmpi'] = {
+  mnemonic: 'cmpi',
+  format: 0b0000_1100_0000_0000,
+  sizeOffset: 7,
+  destinationEffectiveAddressOffset: 5,
+  arguments: 2,
+  sizes: OperandSize.Byte | OperandSize.Word | OperandSize.Long,
+  addressingModes: [
+    AddressingMode.Immediate,
+
+    AddressingMode.DataRegisterDirect |
+    AddressingMode.AddressRegisterIndirect |
+    AddressingMode.AddressRegisterIndirectPostIncrement |
+    AddressingMode.AddressRegisterIndirectPreDecrement |
+    AddressingMode.AddressRegisterIndirectDisplacement |
+    AddressingMode.AddressRegisterIndirectIndexDisplacement |
+    AddressingMode.AbsoluteLong |
+    AddressingMode.AbsoluteShort
+  ]
+};
 
 instructions['tst'] = {
   mnemonic: 'tst',
@@ -842,11 +951,47 @@ instructions['add'] = {
   ]
 }
 
+instructions['adda'] = {
+  mnemonic: 'adda',
+  format: 0b1101_0000_0000_0000,
+  opmodeOffset: 8,
+  opmodeShort: true,
+  effectiveAddressOffset: 5,
+  destinationRegisterOffset: 11,
+  sizes: OperandSize.Byte | OperandSize.Word | OperandSize.Long,
+  arguments: 2,
+  addressingModes: [
+    AddressingMode.DataRegisterDirect |
+    AddressingMode.AddressRegisterDirect |
+    AddressingMode.AddressRegisterIndirect |
+    AddressingMode.AddressRegisterIndirectPostIncrement |
+    AddressingMode.AddressRegisterIndirectPreDecrement |
+    AddressingMode.AddressRegisterIndirectDisplacement |
+    AddressingMode.AddressRegisterIndirectIndexDisplacement |
+    AddressingMode.AbsoluteLong |
+    AddressingMode.AbsoluteShort |
+    AddressingMode.Immediate |
+    AddressingMode.ProgramCounterIndirectDisplacement |
+    AddressingMode.ProgramCounterIndirectIndexDisplacement,
+    AddressingMode.AddressRegisterDirect |
+    AddressingMode.AddressRegisterIndirect |
+    AddressingMode.AddressRegisterIndirectPostIncrement |
+    AddressingMode.AddressRegisterIndirectPreDecrement |
+    AddressingMode.AddressRegisterIndirectDisplacement |
+    AddressingMode.AddressRegisterIndirectIndexDisplacement |
+    AddressingMode.AbsoluteLong |
+    AddressingMode.AbsoluteShort |
+    AddressingMode.Immediate |
+    AddressingMode.ProgramCounterIndirectDisplacement |
+    AddressingMode.ProgramCounterIndirectIndexDisplacement
+  ]
+}
+
 instructions['sub'] = {
   mnemonic: 'sub',
   format: 0b1001_0000_0000_0000,
   opmodeOffset: 8,
-  opmodeSwapped: true,
+  opmodeSwapped: false,
   effectiveAddressOffset: 5,
   destinationRegisterOffset: 11,
   sizes: OperandSize.Byte | OperandSize.Word | OperandSize.Long,
@@ -876,6 +1021,27 @@ instructions['sub'] = {
     AddressingMode.Immediate |
     AddressingMode.ProgramCounterIndirectDisplacement |
     AddressingMode.ProgramCounterIndirectIndexDisplacement
+  ]
+}
+
+instructions['subi'] = {
+  mnemonic: 'subi',
+  format: 0b0000_0100_0000_0000,
+  sizeOffset: 7,
+  destinationEffectiveAddressOffset: 5,
+  sizes: OperandSize.Byte | OperandSize.Word | OperandSize.Long,
+  arguments: 2,
+  addressingModes: [
+    AddressingMode.Immediate,
+
+    AddressingMode.DataRegisterDirect |
+    AddressingMode.AddressRegisterIndirect |
+    AddressingMode.AddressRegisterIndirectPostIncrement |
+    AddressingMode.AddressRegisterIndirectPreDecrement |
+    AddressingMode.AddressRegisterIndirectDisplacement |
+    AddressingMode.AddressRegisterIndirectIndexDisplacement |
+    AddressingMode.AbsoluteLong |
+    AddressingMode.AbsoluteShort
   ]
 }
 
@@ -950,9 +1116,68 @@ instructions['or'] = {
   ]
 }
 
+instructions['and'] = {
+  mnemonic: 'and',
+  format: 0b1100_0000_0000_0000,
+  opmodeOffset: 8,
+  effectiveAddressOffset: 5,
+  destinationRegisterOffset: 11,
+  sizes: OperandSize.Byte | OperandSize.Word | OperandSize.Long,
+  arguments: 2,
+  addressingModes: [
+    AddressingMode.DataRegisterDirect |
+    AddressingMode.AddressRegisterIndirect |
+    AddressingMode.AddressRegisterIndirectPostIncrement |
+    AddressingMode.AddressRegisterIndirectPreDecrement |
+    AddressingMode.AddressRegisterIndirectDisplacement |
+    AddressingMode.AddressRegisterIndirectIndexDisplacement |
+    AddressingMode.AbsoluteLong |
+    AddressingMode.AbsoluteShort |
+    AddressingMode.Immediate |
+    AddressingMode.ProgramCounterIndirectDisplacement |
+    AddressingMode.ProgramCounterIndirectIndexDisplacement,
+    AddressingMode.DataRegisterDirect |
+    AddressingMode.AddressRegisterIndirect |
+    AddressingMode.AddressRegisterIndirectPostIncrement |
+    AddressingMode.AddressRegisterIndirectPreDecrement |
+    AddressingMode.AddressRegisterIndirectDisplacement |
+    AddressingMode.AddressRegisterIndirectIndexDisplacement |
+    AddressingMode.AbsoluteLong |
+    AddressingMode.AbsoluteShort |
+    AddressingMode.Immediate |
+    AddressingMode.ProgramCounterIndirectDisplacement |
+    AddressingMode.ProgramCounterIndirectIndexDisplacement
+  ]
+}
+
 instructions['mulu'] = {
   mnemonic: 'mulu',
   format: 0b1100_0000_1100_0000,
+  effectiveAddressOffset: 5,
+  destinationRegisterOffset: 11,
+  sizes: OperandSize.Word,
+  defaultSize: OperandSize.Word,
+  arguments: 2,
+  addressingModes: [
+    AddressingMode.DataRegisterDirect |
+    AddressingMode.AddressRegisterIndirect |
+    AddressingMode.AddressRegisterIndirectPostIncrement |
+    AddressingMode.AddressRegisterIndirectPreDecrement |
+    AddressingMode.AddressRegisterIndirectDisplacement |
+    AddressingMode.AddressRegisterIndirectIndexDisplacement |
+    AddressingMode.AbsoluteLong |
+    AddressingMode.AbsoluteShort |
+    AddressingMode.Immediate |
+    AddressingMode.ProgramCounterIndirectDisplacement |
+    AddressingMode.ProgramCounterIndirectIndexDisplacement,
+
+    AddressingMode.DataRegisterDirect
+  ]
+}
+
+instructions['divu'] = {
+  mnemonic: 'divu',
+  format: 0b1000_0000_1100_0000,
   effectiveAddressOffset: 5,
   destinationRegisterOffset: 11,
   sizes: OperandSize.Word,
@@ -996,6 +1221,48 @@ instructions['andi'] = {
   ]
 }
 
+instructions['ori'] = {
+  mnemonic: 'ori',
+  format: 0b0000_0000_0000_0000,
+  sizeOffset: 7,
+  destinationEffectiveAddressOffset: 5,
+  sizes: OperandSize.Byte | OperandSize.Word | OperandSize.Long,
+  arguments: 2,
+  addressingModes: [
+    AddressingMode.Immediate,
+
+    AddressingMode.DataRegisterDirect |
+    AddressingMode.AddressRegisterIndirect |
+    AddressingMode.AddressRegisterIndirectPostIncrement |
+    AddressingMode.AddressRegisterIndirectPreDecrement |
+    AddressingMode.AddressRegisterIndirectDisplacement |
+    AddressingMode.AddressRegisterIndirectIndexDisplacement |
+    AddressingMode.AbsoluteLong |
+    AddressingMode.AbsoluteShort
+  ]
+}
+
+instructions['addi'] = {
+  mnemonic: 'addi',
+  format: 0b0000_0110_0000_0000,
+  sizeOffset: 7,
+  destinationEffectiveAddressOffset: 5,
+  sizes: OperandSize.Byte | OperandSize.Word | OperandSize.Long,
+  arguments: 2,
+  addressingModes: [
+    AddressingMode.Immediate,
+
+    AddressingMode.DataRegisterDirect |
+    AddressingMode.AddressRegisterIndirect |
+    AddressingMode.AddressRegisterIndirectPostIncrement |
+    AddressingMode.AddressRegisterIndirectPreDecrement |
+    AddressingMode.AddressRegisterIndirectDisplacement |
+    AddressingMode.AddressRegisterIndirectIndexDisplacement |
+    AddressingMode.AbsoluteLong |
+    AddressingMode.AbsoluteShort
+  ]
+}
+
 instructions['clr'] = {
   mnemonic: 'clr',
   format: 0b0100_0010_0000_0000,
@@ -1003,16 +1270,17 @@ instructions['clr'] = {
   effectiveAddressOffset: 5,
   sizeOffset: 7,
   sizes: OperandSize.Byte | OperandSize.Word | OperandSize.Long,
+  defaultSize: OperandSize.Long,
   addressingModes: [
-    AddressingMode.DataRegisterDirect,
-    AddressingMode.AddressRegisterIndirect,
-    AddressingMode.AddressRegisterIndirectDisplacement,
-    AddressingMode.AddressRegisterIndirectIndexDisplacement,
-    AddressingMode.AddressRegisterIndirectPostIncrement,
-    AddressingMode.AddressRegisterIndirectPreDecrement,
-    AddressingMode.ProgramCounterIndirectDisplacement,
-    AddressingMode.ProgramCounterIndirectIndexDisplacement,
-    AddressingMode.AbsoluteLong,
+    AddressingMode.DataRegisterDirect |
+    AddressingMode.AddressRegisterIndirect |
+    AddressingMode.AddressRegisterIndirectDisplacement |
+    AddressingMode.AddressRegisterIndirectIndexDisplacement |
+    AddressingMode.AddressRegisterIndirectPostIncrement |
+    AddressingMode.AddressRegisterIndirectPreDecrement |
+    AddressingMode.ProgramCounterIndirectDisplacement |
+    AddressingMode.ProgramCounterIndirectIndexDisplacement |
+    AddressingMode.AbsoluteLong |
     AddressingMode.AbsoluteShort
   ]
 }
@@ -1070,7 +1338,7 @@ instructions['lsr'] = {
 
     AddressingMode.DataRegisterDirect
   ],
-  encoder: (instruction: ASTInstructionNode, program: Program, offset: number) => {
+  encoder: (instruction: ASTInstructionNode, program: Program, block: Block, offset: number) => {
     let instructionWord = 0;
 
     if (instruction.arguments.length === 1) {
@@ -1078,7 +1346,7 @@ instructions['lsr'] = {
     }
     else {
       if (isImmediate(instruction.arguments[0])) {
-        let shiftCount = asNumber(program.evaluate(instruction.arguments[0])).value;
+        let shiftCount = asNumber(program.evaluate(instruction.arguments[0], block)).value;
         if (shiftCount === 8) {
           shiftCount = 0;
         }
@@ -1116,7 +1384,7 @@ instructions['lsl'] = {
 
     AddressingMode.DataRegisterDirect
   ],
-  encoder: (instruction: ASTInstructionNode, program: Program, offset: number) => {
+  encoder: (instruction: ASTInstructionNode, program: Program, block: Block, offset: number) => {
     let instructionWord = 0;
 
     if (instruction.arguments.length === 1) {
@@ -1124,7 +1392,7 @@ instructions['lsl'] = {
     }
     else {
       if (isImmediate(instruction.arguments[0])) {
-        let shiftCount = asNumber(program.evaluate(instruction.arguments[0])).value;
+        let shiftCount = asNumber(program.evaluate(instruction.arguments[0], block)).value;
         if (shiftCount === 8) {
           shiftCount = 0;
         }
@@ -1149,5 +1417,11 @@ instructions['lsl'] = {
 instructions['rts'] = {
   mnemonic: 'rts',
   format: 0b0100_1110_0111_0101,
+  arguments: 0
+};
+
+instructions['rte'] = {
+  mnemonic: 'rte',
+  format: 0b0100_1110_0111_0011,
   arguments: 0
 };

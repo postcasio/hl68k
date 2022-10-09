@@ -1,5 +1,7 @@
 %{
   import { OperandSize, getOperandSize } from '../arch/68k/instructions'
+  import { getStructMemberOperandSize } from '../compiler/struct-transform-pass'
+  import { createNumber } from '../compiler/utils'
 
   function hexlify (str: string): string {
     return str.split('').map(ch => '0x' + ch.charCodeAt(0).toString(16)).join(', ')
@@ -31,7 +33,28 @@
     code: ASTBlockLevelNode[];
   }
 
-  export type ASTBlockLevelNode = ASTStatementNode | ASTLabelNode;
+  export interface ASTStructNode {
+    type: NodeType.Struct;
+    path: string;
+    name: string;
+    members: Record<string, ASTStructMemberNode>;
+  }
+
+  export interface ASTStructMemberNode {
+    type: NodeType.StructMember;
+    operandSize: OperandSize;
+    count: ASTExpressionNode;
+    path: string;
+  }
+
+  export interface ASTStructInstanceNode {
+    type: NodeType.StructInstance;
+    path: string;
+    name: string;
+    members: Record<string, ASTExpressionNode>;
+  }
+
+  export type ASTBlockLevelNode = ASTStatementNode | ASTLabelNode | ASTStructInstanceNode;
 
   export interface ASTStatementNode {
     type: NodeType.Statement;
@@ -99,7 +122,7 @@
     end: ASTIdentifierNode;
   }
 
-  export type ASTTopLevelBlockNode = ASTBlockNode | ASTBankNode | ASTAssignmentNode | ASTIncludeNode | ASTMacroNode;
+  export type ASTTopLevelBlockNode = ASTBlockNode | ASTBankNode | ASTAssignmentNode | ASTIncludeNode | ASTMacroNode | ASTTableNode | ASTStructNode;
 
   export type ASTExpressionNode = ASTIndirectNode | ASTAbsoluteNode | ASTNumberNode | ASTAdditionNode | ASTSubtractionNode | ASTMultiplicationNode | ASTDivisionNode | ASTIdentifierNode | ASTUnaryMinusNode | ASTImmediateNode | ASTStringNode | ASTRegisterListNode | ASTRegisterRangeNode | ASTLeftShiftNode | ASTRightShiftNode | ASTBitwiseOrNode | ASTBitwiseAndNode;
 
@@ -187,6 +210,7 @@
     type: NodeType.Identifier;
     path: string;
     identifier: string;
+    isRegister: boolean;
   }
 
   export interface ASTUnaryMinusNode {
@@ -214,6 +238,20 @@
     name: string;
     arguments: string[];
     code: ASTBlockLevelNode[];
+  }
+
+  export interface ASTTableNode {
+    type: NodeType.Table;
+    path: string;
+    name: string;
+    entries: ASTTableEntryNode[]
+  }
+
+  export interface ASTTableEntryNode {
+    type: NodeType.TableEntry;
+    path: string;
+    left: ASTExpressionNode[];
+    right: ASTExpressionNode[];
   }
 
   export type ASTNode = ASTExpressionNode | ASTBlockLevelNode | ASTTopLevelBlockNode | ASTInstructionNode;
@@ -246,7 +284,12 @@
     RightShift = 'RIGHT_SHIFT',
     LeftShift = 'LEFT_SHIFT',
     BitwiseOr = 'BITWISE_OR',
-    BitwiseAnd = 'BITWISE_AND'
+    BitwiseAnd = 'BITWISE_AND',
+    Table = 'TABLE',
+    TableEntry = 'TABLE_ENTRY',
+    Struct = 'STRUCT',
+    StructMember = 'STRUCT_MEMBER',
+    StructInstance = 'STRUCT_INSTANCE'
   }
 %}
 
@@ -261,14 +304,18 @@
 \$[0-9A-F][0-9A-F_]*\b          return 'NUMBER'
 [0-9][0-9_]*\b               return 'NUMBER'
 block\b                return 'BLOCK'
+struct\b               return 'STRUCT'
 bank\b                 return 'BANK'
 include\b              return 'INCLUDE'
 macro\b                return 'MACRO'
+table\b                return 'TABLE'
 \@[A-Z_.][A-Z_.0-9]+\b return 'PROPERTY'
+".b"                   return '.b'
 ".w"                   return '.w'
 ".l"                   return '.l'
+".$"                   return '.$'
 (a\d|d\d|sp|sr|usp|fp|pc)\b return 'REGISTER'
-[A-Z_.][A-Z_.0-9]+\b   return 'IDENTIFIER'
+[A-Z_.$][A-Z_.0-9$]+   return 'IDENTIFIER'
 ","                    return ','
 "("                    return '('
 ")"                    return ')'
@@ -321,6 +368,8 @@ definition
   | macro
   | block
   | bank
+  | table
+  | struct
   ;
 
 include
@@ -333,7 +382,9 @@ assignment
   ;
 
 macro
-  : MACRO IDENTIFIER '(' macro_argument_list ')' block_body newline
+  : MACRO IDENTIFIER '(' ')' block_body newline
+    { $$ = { type: NodeType.Macro, path: yy.path, name: $2, arguments: [], code: $5 } as ASTMacroNode; }
+  | MACRO IDENTIFIER '(' macro_argument_list ')' block_body newline
     { $$ = { type: NodeType.Macro, path: yy.path, name: $2, arguments: $4, code: $6 } as ASTMacroNode; }
   ;
 
@@ -354,6 +405,11 @@ bank
     { $$ = { type: NodeType.Bank, path: yy.path, name: $2, properties: $5 }; }
   ;
 
+table
+  : TABLE IDENTIFIER '{' newline table_entry_list '}' newline
+    { $$ = { type: NodeType.Table, path: yy.path, name: $2, entries: $5 }; }
+  ;
+
 stmt_list
   : stmt_list stmt { $$ = $1.concat($2); }
   | stmt
@@ -363,9 +419,13 @@ stmt
   : instruction newline
     { $$ = [{ type: NodeType.Statement, instruction: $1 }]; }
   | label instruction newline
+    { $$ = [$1, {type: NodeType.Statement, instruction: $2 }]; }
+  | struct_instance newline
+    { $$ = [$1]; }
+  | label struct_instance newline
     { $$ = [$1, $2]; }
   | label newline
-    { $$ = [$1] }
+    { $$ = [$1]; }
   ;
 
 macro_argument_list
@@ -388,9 +448,31 @@ property
     { $$ = { type: NodeType.Property, path: yy.path, name: $1.substr(1), value: $3 }; }
   ;
 
+
+table_entry_list
+  : table_entry_list table_entry newline { $$ = $1.concat([$2]); }
+  | table_entry newline { $$ = [$1]; }
+  ;
+
+table_entry
+  : table_entry_value_list '=' table_entry_value_list
+    { $$ = { type: NodeType.TableEntry, path: yy.path, left: $1, right: $3 }; }
+  ;
+
+table_entry_value_list
+  : table_entry_value_list ',' table_entry_value { $$ = $1.concat([$3]); }
+  | table_entry_value { $$ = [$1]; }
+  ;
+
+table_entry_value
+  : string
+  | number
+  | '(' math ')' { $$ = $2; }
+  ;
+
 register
   : REGISTER
-    { $$ = { type: NodeType.Identifier, path: yy.path, identifier: $1 } as ASTIdentifierNode; }
+    { $$ = { type: NodeType.Identifier, path: yy.path, identifier: $1, isRegister: true } as ASTIdentifierNode; }
   ;
 
 register_list
@@ -409,10 +491,50 @@ register_list_expr
 
 instruction
   : IDENTIFIER arguments
-    { { const [_m, _s] = $1.split('.', 2); $$ = { type: NodeType.Instruction, path: yy.path, mnemonic: _m, size: getOperandSize(_s), arguments: $2 } as ASTInstructionNode; } }
+    { { const dot = $1.indexOf('.', 1); $$ = { type: NodeType.Instruction, path: yy.path, mnemonic: dot >= 0 ? $1.substr(0, dot) : $1, size: getOperandSize(dot >= 0 ? $1.substr(dot + 1) : undefined), arguments: $2 } as ASTInstructionNode; } }
   | IDENTIFIER
-    { { const [_m, _s] = $1.split('.', 2); $$ = { type: NodeType.Instruction, path: yy.path, mnemonic: _m, size: getOperandSize(_s), arguments: [] } as ASTInstructionNode; } }
+    { { const dot = $1.indexOf('.', 1); $$ = { type: NodeType.Instruction, path: yy.path, mnemonic: dot >= 0 ? $1.substr(0, dot) : $1, size: getOperandSize(dot >= 0 ? $1.substr(dot + 1) : undefined), arguments: [] } as ASTInstructionNode; } }
   ;
+
+struct
+  : STRUCT IDENTIFIER struct_body newline
+    { $$ = { type: NodeType.Struct, path: yy.path, name: $2, members: Object.fromEntries($3) }; }
+  ;
+
+struct_body
+  : '{' newline '}' { $$ = []; }
+  | '{' newline struct_member_list '}' { $$ = $3; }
+  ;
+
+struct_member_list
+  : struct_member_list struct_member newline { $$ = $1.concat([$2]); }
+  | struct_member newline { $$ = [$1]; }
+  ;
+
+struct_member
+  : IDENTIFIER IDENTIFIER
+    { $$ = [$2, { type: NodeType.StructMember, operandSize: getStructMemberOperandSize($1), count: createNumber(1, yy.path), path: yy.path }]; }
+  | IDENTIFIER IDENTIFIER '[' math ']'
+    { $$ = [$2, { type: NodeType.StructMember, operandSize: getStructMemberOperandSize($1), count: $4, path: yy.path }]; }
+  ;
+
+struct_instance
+  : IDENTIFIER '{' newline struct_instance_member_list '}'
+    { $$ = { type: NodeType.StructInstance, path: yy.path, name: $1, members: Object.fromEntries($4) }; }
+  | IDENTIFIER '{' '}'
+    { $$ = { type: NodeType.StructInstance, path: yy.path, name: $1, members: {} }; }
+  ;
+
+struct_instance_member_list
+  : struct_instance_member_list struct_instance_member newline { $$ = $1.concat([$2]); }
+  | struct_instance_member newline { $$ = [$1]; }
+  ;
+
+struct_instance_member
+  : IDENTIFIER '=' property_expr
+    { $$ = [$1, $3]; }
+  ;
+
 
 arguments
   : arguments ',' expr { $$ = $1.concat([$3]); }
@@ -427,6 +549,8 @@ label
 index_size
   : '.w' { $$ = OperandSize.Word }
   | '.l' { $$ = OperandSize.Long }
+  | '.b' { $$ = OperandSize.Byte }
+  | '.$' { $$ = OperandSize.MacroArg }
   ;
 
 
@@ -461,7 +585,7 @@ property_expr
 
 identifier
   : IDENTIFIER
-    { $$ = { type: NodeType.Identifier, path: yy.path, identifier: $1 } as ASTIdentifierNode; }
+    { $$ = { type: NodeType.Identifier, path: yy.path, identifier: $1, isRegister: false } as ASTIdentifierNode; }
   ;
 
 immediate

@@ -18,7 +18,9 @@
     "build:bin": "cp -r bin/* build/bin && chmod +x build/bin/*",
     "build": "yarn run build:parser && yarn run build:tsc && yarn run build:bin",
     "start": "./build/bin/gsc",
-    "test": "yarn run start samples/tutorial/main.as samples/tutorial/tutorial.md"
+    "script": "yarn run start samples/game/script/main.as samples/game/script/script.bin",
+    "rom": "yarn run start samples/game/main.as samples/game/game.md",
+    "all": "yarn run build && yarn run script && yarn run rom"
   },
   "bin": {
     "gsc": "./build/bin/gsc"

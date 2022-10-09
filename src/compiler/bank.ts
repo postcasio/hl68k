@@ -8,6 +8,7 @@ export class Bank {
   ram_start: ASTExpressionNode = createNumber(-1, '');
   size: ASTExpressionNode = createNumber(-1, '');
   rom: ASTExpressionNode = createNumber(0, '');
+  align: ASTExpressionNode = createNumber(1, '');
   codeSize: number = 0;
   path: string;
 
