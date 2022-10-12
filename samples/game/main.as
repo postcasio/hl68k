@@ -15,6 +15,8 @@ include "tilesets/test.as"
 include "script/interpreter/main.as"
 include "map/main.as"
 include "maps/main.as"
+include "characters.as"
+include "game.as"
 
 block main_code (@bank = rom_code, @align = 8, @table = default_table) {
 
@@ -35,14 +37,6 @@ start:
 
     lea palette_system,a0
     move.l #$0, d0
-    jsr load_palette
-
-    lea palette_spring,a0
-    move.l #32, d0
-    jsr load_palette
-
-    lea palette_winter,a0
-    move.l #64, d0
     jsr load_palette
 
     lea font,a0
@@ -75,7 +69,7 @@ vblank:
 
 .align 4
 .strings:
-    dc.b "TESTING CONSOLE\n\0"
+    dc.b "Testing console\n\0"
 
 .align 4
 .table:

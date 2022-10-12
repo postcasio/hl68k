@@ -149,9 +149,9 @@ script_execute_instruction:
 }
 
 block script_string_data (@bank = rom_code, @table = default_table) {
-script_error_text: dc.b "SCRIPT ERROR!\n\0"
-script_mark_finished_str: dc.b "SCRIPT FINISHED\n", 0
-script_mark_waiting_str: dc.b "SCRIPT WAITING\n", 0
+script_error_text: dc.b "Script error!\n\0"
+script_mark_finished_str: dc.b "Script finished\n", 0
+script_mark_waiting_str: dc.b "Script waiting\n", 0
 }
 
 block script_data (@bank = rom_script, @align = $10000) {

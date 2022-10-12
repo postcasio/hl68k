@@ -192,16 +192,16 @@ int_end:
   bra.s .forever
 
 .excl_icon: dc.b "[!] ", 0
-.ex_read_failed: dc.b "READ FAILED\n\n",0
-.ex_write_failed: dc.b "WRITE FAILED\n\n",0
+.ex_read_failed: dc.b "Read failed\n\n",0
+.ex_write_failed: dc.b "Write failed\n\n",0
 .reg_addr_name: dc.b "ADDR: ", 0
 .reg_pc_name: dc.b "PC: ", 0
 .spaces: dc.b "  "
 .two_spaces: dc.b "  ", 0
-.reg_names:   dc.b "D0", $0, "D1", $0, "D2", $0, "D3", $0
-              dc.b "D4", $0, "D5", $0, "D6", $0, "D7", $0
-.reg_names_a: dc.b "A0", $0, "A1", $0, "A2", $0, "A3", $0
-              dc.b "A4", $0, "A5", $0, "A6", $0, "A7", $0
+.reg_names:   dc.b "d0", $0, "d1", $0, "d2", $0, "d3", $0
+              dc.b "d4", $0, "d5", $0, "d6", $0, "d7", $0
+.reg_names_a: dc.b "a0", $0, "a1", $0, "a2", $0, "a3", $0
+              dc.b "a4", $0, "a5", $0, "a6", $0, "a7", $0
 
 colon_str: dc.b ": ", 0
 newline_str: dc.b "\n", 0

@@ -7,10 +7,11 @@ map_test:
 		width = 64
 		height = 64
 		name = "TEST MAP\0"
+		palettes = palette_spring, palette_winter, palette_summer
 	}
 .align 16
 .fg:
-	ds.w $1000, $a085, $a086, $a087, $a088
+	ds.w $1000, $a080, $a081, $a082, $a083, $a084, $a085
 .bg:
 	ds.w $1000, $0085
 }

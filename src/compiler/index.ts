@@ -3,6 +3,7 @@ import { HL68kParser, ASTUnitNode } from "../parser";
 import { InitPass } from "./init-pass";
 import { MacroTransformPass } from "./macro-transform-pass";
 import { OutputPass } from "./output-pass";
+import { RepeatTransformClass } from "./repeat-transform-pass";
 import { StructTransformPass } from "./struct-transform-pass";
 
 export class Compiler {
@@ -26,6 +27,8 @@ export class Compiler {
     macroTransformPass.transform(program);
     const structTransformPass = new StructTransformPass();
     structTransformPass.transform(program);
+    const repeatTransformClass = new RepeatTransformClass();
+    repeatTransformClass.transform(program);
     program.sortBanks();
     const outputPass = new OutputPass(output, program, this);
     outputPass.write();

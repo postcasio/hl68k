@@ -51,10 +51,10 @@
     type: NodeType.StructInstance;
     path: string;
     name: string;
-    members: Record<string, ASTExpressionNode>;
+    members: Record<string, ASTExpressionNode[]>;
   }
 
-  export type ASTBlockLevelNode = ASTStatementNode | ASTLabelNode | ASTStructInstanceNode;
+  export type ASTBlockLevelNode = ASTStatementNode | ASTLabelNode | ASTStructInstanceNode | ASTRepeatNode;
 
   export interface ASTStatementNode {
     type: NodeType.Statement;
@@ -254,6 +254,13 @@
     right: ASTExpressionNode[];
   }
 
+  export interface ASTRepeatNode {
+    type: NodeType.Repeat;
+    path: string;
+    count: ASTExpressionNode;
+    code: ASTBlockLevelNode[];
+  }
+
   export type ASTNode = ASTExpressionNode | ASTBlockLevelNode | ASTTopLevelBlockNode | ASTInstructionNode;
 
 
@@ -289,7 +296,8 @@
     TableEntry = 'TABLE_ENTRY',
     Struct = 'STRUCT',
     StructMember = 'STRUCT_MEMBER',
-    StructInstance = 'STRUCT_INSTANCE'
+    StructInstance = 'STRUCT_INSTANCE',
+    Repeat = 'REPEAT'
   }
 %}
 
@@ -309,6 +317,7 @@ bank\b                 return 'BANK'
 include\b              return 'INCLUDE'
 macro\b                return 'MACRO'
 table\b                return 'TABLE'
+repeat\b               return 'REPEAT'
 \@[A-Z_.][A-Z_.0-9]+\b return 'PROPERTY'
 ".b"                   return '.b'
 ".w"                   return '.w'
@@ -417,15 +426,17 @@ stmt_list
 
 stmt
   : instruction newline
-    { $$ = [{ type: NodeType.Statement, instruction: $1 }]; }
+    { $$ = [{ type: NodeType.Statement, instruction: $1, path: yy.path }]; }
   | label instruction newline
-    { $$ = [$1, {type: NodeType.Statement, instruction: $2 }]; }
+    { $$ = [$1, {type: NodeType.Statement, instruction: $2, path: yy.path }]; }
   | struct_instance newline
     { $$ = [$1]; }
   | label struct_instance newline
     { $$ = [$1, $2]; }
   | label newline
     { $$ = [$1]; }
+  | REPEAT '(' property_expr ')' block_body newline
+    { $$ = [{type: NodeType.Repeat, count: $3, code: $5, path: yy.path }]}
   ;
 
 macro_argument_list
@@ -531,7 +542,7 @@ struct_instance_member_list
   ;
 
 struct_instance_member
-  : IDENTIFIER '=' property_expr
+  : IDENTIFIER '=' property_expr_list
     { $$ = [$1, $3]; }
   ;
 
@@ -581,6 +592,11 @@ expr
 property_expr
   : math
   | string
+  ;
+
+property_expr_list
+  : property_expr_list ',' property_expr { $$ = $1.concat([$3]); }
+  | property_expr { $$ = [$1] }
   ;
 
 identifier

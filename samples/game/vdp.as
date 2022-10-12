@@ -67,6 +67,17 @@ vramcopy.l:
   move.l  (a0)+,(a6)
   dbf    d0,.vramloop
   rts
+cramcopy.l:
+  ; a0 = source addr
+  ; a1 = dest addr
+  ; d0 = count
+  vdp_lea
+  vdp_begin_write VDP_CRAM_WRITE, a1
+  subi.w #1,d0
+.cramloop:
+  move.l  (a0)+,(a6)
+  dbf    d0,.cramloop
+  rts
 vdp_init:
 	lea VDP_DATA,a0
 	lea VDP_CONTROL,a1

@@ -30,6 +30,7 @@ export class StructTransformPass {
           for (let [name, def] of Object.entries(struct.members)) {
             const size = def.operandSize;
             const expr = members[name] || createNumber(0, node.path);
+            const count = asNumber(program.evaluate(def.count)).value;
 
             replacementDefinitions.push({
               type: NodeType.Statement,
@@ -39,7 +40,7 @@ export class StructTransformPass {
                 path: node.path,
                 mnemonic: 'dc',
                 size,
-                arguments: Array(asNumber(program.evaluate(def.count)).value).fill(expr)
+                arguments: Array.isArray(expr) ? expr : Array(count).fill(expr)
               }
             });
           }

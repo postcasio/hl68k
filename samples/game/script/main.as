@@ -13,5 +13,5 @@ init:
 	console_log .hello_world
 	rts
 .hello_world:
-	dc.b "HELLO, WORLD!\n\0"
+	dc.b "Hello, world!\n\0"
 }

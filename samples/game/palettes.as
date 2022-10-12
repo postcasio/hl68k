@@ -1,6 +1,8 @@
 block palette_code (@bank = rom_code) {
 
 load_palette:
+    ; d0 = CRAM addr
+    ; a0 = palette addr
     vdp_begin_write VDP_CRAM_WRITE, d0
 
     move.l #8, d0
