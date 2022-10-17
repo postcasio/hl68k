@@ -1,3 +1,5 @@
+include "objects.as"
+
 struct map_header {
 	word size
 	word width
@@ -18,13 +20,13 @@ active_map_fg: ds.b $2000
 }
 
 block map_code (@bank = rom_code, @align = 2) {
-load_map_id:
+map_load_id:
 	; d0 = map id
 	lea map_list,a1
 	subi.w #1,d0
 	mulu.w #4,d0
 	movea.l (a1, d0.w), a0
-load_map_addr:
+map_load_addr:
 	; a0 = map header address
 	pusha.l a0
 	lea active_map_header,a1

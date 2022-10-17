@@ -15,7 +15,7 @@ console_init:
   rts
 
 console_nl:
-  lea .newline_str, a0
+  lea newline_str, a0
 console_write:
   vdp_lea
   ; find address in table for x,y coords
@@ -54,5 +54,5 @@ console_write:
 .exit:
   rts
 
-.newline_str: dc.b "\n",0
+newline_str: dc.b NL,0
 }

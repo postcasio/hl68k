@@ -6,7 +6,7 @@ map_test:
 		bgOffset = .bg-map_test
 		width = 64
 		height = 64
-		name = "TEST MAP\0"
+		name = "TEST MAP", 0
 		palettes = palette_spring, palette_winter, palette_summer
 	}
 .align 16

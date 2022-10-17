@@ -30,6 +30,7 @@ export class Compiler {
     const repeatTransformClass = new RepeatTransformClass();
     repeatTransformClass.transform(program);
     program.sortBanks();
+    program.complainMissingVariables = true;
     const outputPass = new OutputPass(output, program, this);
     outputPass.write();
     // process.stdout.write(JSON.stringify(program, undefined, 2));

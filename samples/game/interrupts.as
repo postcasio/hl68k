@@ -104,6 +104,7 @@ int_end:
   jsr console_write
 
   jsr console_nl
+  bra.s .output_registers
 
 
 .bus_or_address_ex:
@@ -192,25 +193,24 @@ int_end:
   bra.s .forever
 
 .excl_icon: dc.b "[!] ", 0
-.ex_read_failed: dc.b "Read failed\n\n",0
-.ex_write_failed: dc.b "Write failed\n\n",0
+.ex_read_failed: dc.b "Read failed", NL, NL, 0
+.ex_write_failed: dc.b "Write failed", NL, NL, 0
 .reg_addr_name: dc.b "ADDR: ", 0
 .reg_pc_name: dc.b "PC: ", 0
 .spaces: dc.b "  "
 .two_spaces: dc.b "  ", 0
-.reg_names:   dc.b "d0", $0, "d1", $0, "d2", $0, "d3", $0
-              dc.b "d4", $0, "d5", $0, "d6", $0, "d7", $0
-.reg_names_a: dc.b "a0", $0, "a1", $0, "a2", $0, "a3", $0
-              dc.b "a4", $0, "a5", $0, "a6", $0, "a7", $0
+.reg_names:   dc.b "d0", 0, "d1", 0, "d2", 0, "d3", 0
+              dc.b "d4", 0, "d5", 0, "d6", 0, "d7", 0
+              dc.b "a0", 0, "a1", 0, "a2", 0, "a3", 0
+              dc.b "a4", 0, "a5", 0, "a6", 0, "sp", 0
 
 colon_str: dc.b ": ", 0
-newline_str: dc.b "\n", 0
 .align 2
 .error_strings:
-  dc.w $0000
-  dc.w .bus_error-.error_strings
-  dc.w .address_error-.error_strings
-  dc.w .illegal_instruction-.error_strings
+  dc.w $0000                                    ; 0
+  dc.w .bus_error-.error_strings                ; 1
+  dc.w .address_error-.error_strings            ; 2
+  dc.w .illegal_instruction-.error_strings      ; 3
   dc.w .division_by_zero-.error_strings
   dc.w .chk_exception-.error_strings
   dc.w .trapv_exception-.error_strings
@@ -261,51 +261,51 @@ newline_str: dc.b "\n", 0
   dc.w $0000, $0000, $0000, $0000, $0000
 
 
-.bus_error:           dc.b "BUS ERROR\0"
-.address_error:       dc.b "ADDRESS ERROR\0"
-.illegal_instruction: dc.b "ILLEGAL INSTRUCTION\0"
-.division_by_zero:    dc.b "DIVISION BY ZERO\0"
-.chk_exception:       dc.b "CHK EXCEPTION\0"
-.trapv_exception:     dc.b "TRAPV EXCEPTION\0"
-.privilege_violation: dc.b "PRIVILEGE VIOLATION\0"
-.trace_exception:     dc.b "TRACE EXCEPTION\0"
-.line_a_emulator:     dc.b "LINE-A EMULATOR\0"
-.line_f_emulator:     dc.b "LINE-F EMULATOR\0"
-.coprocessor_protocol_violation: dc.b "COPROCESSOR PROTOCOL VIOLATION\0"
-.format_error:        dc.b "FORMAT ERROR\0"
-.unitialized_interrupt:dc.b "UNINITIALIZED INTERRUPT\0"
-.spurious_interrupt:  dc.b "SPURIOUS INTERRUPT\0"
-.irq_level_1:         dc.b "IRQ LEVEL 1\0"
-.irq_level_2:         dc.b "IRQ LEVEL 2 EXT INTERRUPT\0"
-.irq_level_3:         dc.b "IRQ LEVEL 3\0"
-.irq_level_5:         dc.b "IRQ LEVEL 5\0"
-.irq_level_7:         dc.b "IRQ LEVEL 7\0"
-.trap_00_exception:   dc.b "TRAP #00 EXCEPTION\0"
-.trap_01_exception:   dc.b "TRAP #01 EXCEPTION\0"
-.trap_02_exception:   dc.b "TRAP #02 EXCEPTION\0"
-.trap_03_exception:   dc.b "TRAP #03 EXCEPTION\0"
-.trap_04_exception:   dc.b "TRAP #04 EXCEPTION\0"
-.trap_05_exception:   dc.b "TRAP #05 EXCEPTION\0"
-.trap_06_exception:   dc.b "TRAP #06 EXCEPTION\0"
-.trap_07_exception:   dc.b "TRAP #07 EXCEPTION\0"
-.trap_08_exception:   dc.b "TRAP #08 EXCEPTION\0"
-.trap_09_exception:   dc.b "TRAP #09 EXCEPTION\0"
-.trap_10_exception:   dc.b "TRAP #10 EXCEPTION\0"
-.trap_11_exception:   dc.b "TRAP #11 EXCEPTION\0"
-.trap_12_exception:   dc.b "TRAP #12 EXCEPTION\0"
-.trap_13_exception:   dc.b "TRAP #13 EXCEPTION\0"
-.trap_14_exception:   dc.b "TRAP #14 EXCEPTION\0"
-.trap_15_exception:   dc.b "TRAP #15 EXCEPTION\0"
-.fp_branch_or_set_on_unordered_condition: dc.b "FP BRANCH OR SET ON UNORDERED CONDITION\0"
-.fp_inexact_result:    dc.b "FP INEXACT RESULT\0"
-.fp_divide_by_zero:    dc.b "FP DIVIDE BY ZERO\0"
-.fp_underflow:         dc.b "FP UNDERFLOW\0"
-.fp_operand_error:     dc.b "FP OPERAND ERROR\0"
-.fp_overflow:          dc.b "FP OVERFLOW\0"
-.fp_signaling_nan:     dc.b "FP SIGNALING NAN\0"
-.fp_unimplemented_data_type: dc.b "FP UNIMPLEMENTED DATA TYPE\0"
-.mmu_configuration_error: dc.b "MMU CONFIGURATION ERROR\0"
-.mmu_illegal_operation_error: dc.b "MMU ILLEGAL OPERATION ERROR\0"
-.mmu_access_violation_error: dc.b "MMU ACCESS VIOLATION ERROR\0"
+.bus_error:           dc.b "BUS ERROR", 0
+.address_error:       dc.b "ADDRESS ERROR", 0
+.illegal_instruction: dc.b "ILLEGAL INSTRUCTION", 0
+.division_by_zero:    dc.b "DIVISION BY ZERO", 0
+.chk_exception:       dc.b "CHK EXCEPTION", 0
+.trapv_exception:     dc.b "TRAPV EXCEPTION", 0
+.privilege_violation: dc.b "PRIVILEGE VIOLATION", 0
+.trace_exception:     dc.b "TRACE EXCEPTION", 0
+.line_a_emulator:     dc.b "LINE-A EMULATOR", 0
+.line_f_emulator:     dc.b "LINE-F EMULATOR", 0
+.coprocessor_protocol_violation: dc.b "COPROCESSOR PROTOCOL VIOLATION", 0
+.format_error:        dc.b "FORMAT ERROR", 0
+.unitialized_interrupt:dc.b "UNINITIALIZED INTERRUPT", 0
+.spurious_interrupt:  dc.b "SPURIOUS INTERRUPT", 0
+.irq_level_1:         dc.b "IRQ LEVEL 1", 0
+.irq_level_2:         dc.b "IRQ LEVEL 2 EXT INTERRUPT", 0
+.irq_level_3:         dc.b "IRQ LEVEL 3", 0
+.irq_level_5:         dc.b "IRQ LEVEL 5", 0
+.irq_level_7:         dc.b "IRQ LEVEL 7", 0
+.trap_00_exception:   dc.b "TRAP #00 EXCEPTION", 0
+.trap_01_exception:   dc.b "TRAP #01 EXCEPTION", 0
+.trap_02_exception:   dc.b "TRAP #02 EXCEPTION", 0
+.trap_03_exception:   dc.b "TRAP #03 EXCEPTION", 0
+.trap_04_exception:   dc.b "TRAP #04 EXCEPTION", 0
+.trap_05_exception:   dc.b "TRAP #05 EXCEPTION", 0
+.trap_06_exception:   dc.b "TRAP #06 EXCEPTION", 0
+.trap_07_exception:   dc.b "TRAP #07 EXCEPTION", 0
+.trap_08_exception:   dc.b "TRAP #08 EXCEPTION", 0
+.trap_09_exception:   dc.b "TRAP #09 EXCEPTION", 0
+.trap_10_exception:   dc.b "TRAP #10 EXCEPTION", 0
+.trap_11_exception:   dc.b "TRAP #11 EXCEPTION", 0
+.trap_12_exception:   dc.b "TRAP #12 EXCEPTION", 0
+.trap_13_exception:   dc.b "TRAP #13 EXCEPTION", 0
+.trap_14_exception:   dc.b "TRAP #14 EXCEPTION", 0
+.trap_15_exception:   dc.b "TRAP #15 EXCEPTION", 0
+.fp_branch_or_set_on_unordered_condition: dc.b "FP BRANCH OR SET ON UNORDERED CONDITION", 0
+.fp_inexact_result:    dc.b "FP INEXACT RESULT", 0
+.fp_divide_by_zero:    dc.b "FP DIVIDE BY ZERO", 0
+.fp_underflow:         dc.b "FP UNDERFLOW", 0
+.fp_operand_error:     dc.b "FP OPERAND ERROR", 0
+.fp_overflow:          dc.b "FP OVERFLOW", 0
+.fp_signaling_nan:     dc.b "FP SIGNALING NAN", 0
+.fp_unimplemented_data_type: dc.b "FP UNIMPLEMENTED DATA TYPE", 0
+.mmu_configuration_error: dc.b "MMU CONFIGURATION ERROR", 0
+.mmu_illegal_operation_error: dc.b "MMU ILLEGAL OPERATION ERROR", 0
+.mmu_access_violation_error: dc.b "MMU ACCESS VIOLATION ERROR", 0
 
 }

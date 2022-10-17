@@ -3,10 +3,10 @@ block boot (@bank = rom_code, @align = 4) {
 __entry:
     move #$2700, sr
     tst.l CONTROLLER1_CTRL
-    bne.s skipJoyDetect
+    bne.s .skipJoyDetect
     tst.w EXPANSION_CTRL
 .skipJoyDetect:
-    bne.s skipSetup
+    bne.s .skipSetup
 
     lea .table,a5
     movem.w (a5)+,d5-d7

@@ -124,7 +124,7 @@
 
   export type ASTTopLevelBlockNode = ASTBlockNode | ASTBankNode | ASTAssignmentNode | ASTIncludeNode | ASTMacroNode | ASTTableNode | ASTStructNode;
 
-  export type ASTExpressionNode = ASTIndirectNode | ASTAbsoluteNode | ASTNumberNode | ASTAdditionNode | ASTSubtractionNode | ASTMultiplicationNode | ASTDivisionNode | ASTIdentifierNode | ASTUnaryMinusNode | ASTImmediateNode | ASTStringNode | ASTRegisterListNode | ASTRegisterRangeNode | ASTLeftShiftNode | ASTRightShiftNode | ASTBitwiseOrNode | ASTBitwiseAndNode;
+  export type ASTExpressionNode = ASTIndirectNode | ASTAbsoluteNode | ASTNumberNode | ASTAdditionNode | ASTSubtractionNode | ASTMultiplicationNode | ASTDivisionNode | ASTIdentifierNode | ASTUnaryMinusNode | ASTImmediateNode | ASTStringNode | ASTRegisterListNode | ASTRegisterRangeNode | ASTLeftShiftNode | ASTRightShiftNode | ASTBitwiseOrNode | ASTBitwiseAndNode | ASTBitwiseNotNode;
 
   export interface ASTAbsoluteNode {
     type: NodeType.Absolute;
@@ -190,6 +190,12 @@
     path: string;
     left: ASTExpressionNode;
     right: ASTExpressionNode;
+  }
+
+    export interface ASTBitwiseNotNode {
+    type: NodeType.BitwiseNot;
+    path: string;
+    operand: ASTExpressionNode;
   }
 
   export interface ASTMultiplicationNode {
@@ -292,6 +298,7 @@
     LeftShift = 'LEFT_SHIFT',
     BitwiseOr = 'BITWISE_OR',
     BitwiseAnd = 'BITWISE_AND',
+    BitwiseNot = 'BITWISE_NOT',
     Table = 'TABLE',
     TableEntry = 'TABLE_ENTRY',
     Struct = 'STRUCT',
@@ -324,7 +331,7 @@ repeat\b               return 'REPEAT'
 ".l"                   return '.l'
 ".$"                   return '.$'
 (a\d|d\d|sp|sr|usp|fp|pc)\b return 'REGISTER'
-[A-Z_.$][A-Z_.0-9$]+   return 'IDENTIFIER'
+[A-Z_.$][A-Z_.0-9$]*   return 'IDENTIFIER'
 ","                    return ','
 "("                    return '('
 ")"                    return ')'
@@ -344,6 +351,7 @@ repeat\b               return 'REPEAT'
 "+"                    return '+'
 "*"                    return '*'
 "/"                    return '/'
+"~"                    return '~'
 "@"                    return '@'
 "<"                    return '<'
 ">"                    return '>'
@@ -478,6 +486,7 @@ table_entry_value_list
 table_entry_value
   : string
   | number
+  | identifier
   | '(' math ')' { $$ = $2; }
   ;
 
@@ -624,6 +633,8 @@ bitwise
     { $$ = { type: NodeType.BitwiseOr, path: yy.path, left: $1, right: $3 } as ASTBitwiseOrNode; }
   | bitwise '&' complex
     { $$ = { type: NodeType.BitwiseAnd, path: yy.path, left: $1, right: $3 } as ASTBitwiseAndNode; }
+  | '~' complex
+    { $$ = { type: NodeType.BitwiseNot, path: yy.path, operand: $2 } as ASTBitwiseNotNode; }
   | complex
   ;
 

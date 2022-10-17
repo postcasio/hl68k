@@ -569,8 +569,8 @@ font.letters.lower_t:
 	dc.l $01111110
 	dc.l $00222222
 font.letters.lower_u:
-	dc.l $12000012
-	dc.l $12000012
+	dc.l $00000000
+	dc.l $00000000
 	dc.l $12000012
 	dc.l $12000012
 	dc.l $12000012
@@ -578,8 +578,8 @@ font.letters.lower_u:
 	dc.l $01111122
 	dc.l $00222220
 font.letters.lower_v:
-	dc.l $12000012
-	dc.l $12000012
+	dc.l $00000000
+	dc.l $00000000
 	dc.l $12000012
 	dc.l $12000012
 	dc.l $12000120

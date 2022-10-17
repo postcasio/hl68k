@@ -63,7 +63,7 @@ export class InitPass {
           macro.arguments = node.arguments;
           macro.code = node.code;
           program.setMacro(node.name, macro);
-          console.log(`Created macro ` + node.name);
+
           break;
         case NodeType.Table:
           const table = new Table(node.name, node.entries.map(entry => ({
@@ -91,6 +91,7 @@ export class InitPass {
                 break;
             }
           }
+          program.setGlobal(`${node.name}.$size`, createNumber(structMemberOffset, node.path));
           break;
         case NodeType.Block:
           const block = new Block(node.name);
@@ -116,7 +117,7 @@ export class InitPass {
           if (!blockBank) {
             throw new Error(`Bank ${blockBankName} does not exist ${JSON.stringify(node)}`);
           }
-          console.log(`Created block ${block.name}`);
+
           blockBank.blocks.push(block);
       }
     }

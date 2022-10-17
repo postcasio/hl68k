@@ -19,9 +19,7 @@ export function getStructMemberOperandSize(type: string) {
 export class MacroTransformPass {
   transform(program: Program) {
     for (const bank of program.banks) {
-      console.log(`Apply macros to bank ${bank.name}`);
       for (const block of bank.blocks) {
-          console.log(`Apply macros to block ${block.name}`);
           block.code = program.applyMacros(block.code, block);
       }
     };

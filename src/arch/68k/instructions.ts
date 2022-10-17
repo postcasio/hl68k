@@ -431,6 +431,8 @@ export function encode(instructionNode: ASTInstructionNode, program: Program, bl
         assert(isAddressRegisterIdentifier(sourceArg) || isDataRegisterIdentifier(sourceArg), 'source argument must be a register');
 
         sourceRegister = getRegisterNumber(sourceArg);
+
+        instructionWord |= sourceRegister << (instruction.sourceRegisterOffset - 2);
       }
       else if (isImmediate(sourceArg)) {
         sourceRegister = 0b100;
@@ -439,10 +441,8 @@ export function encode(instructionNode: ASTInstructionNode, program: Program, bl
           throw new Error(`instruction ${mnemonic} needs sourceRegisterIsImmediateOffset to support an immediate in this argument`);
         }
 
-        instructionWord |= 1 << instruction.sourceRegisterIsImmediateOffset;
+        instructionWord |= sourceRegister << (instruction.sourceRegisterIsImmediateOffset - 2);
       }
-
-      instructionWord |= sourceRegister << (instruction.sourceRegisterOffset - 2);
     }
   }
 
@@ -465,7 +465,13 @@ export function encode(instructionNode: ASTInstructionNode, program: Program, bl
     else {
       switch (addressingMode) {
         case AddressingMode.Immediate:
-          extensionBytes.push(...encodeValue(asNumber(program.evaluate(operand, block)).value - (instruction.relativeTarget ? (offset + 2) : 0), size, instruction.signedTarget));
+          try {
+            extensionBytes.push(...encodeValue(asNumber(program.evaluate(operand, block)).value - (instruction.relativeTarget ? (offset + 2) : 0), size, instruction.signedTarget));
+          }
+          catch (e) {
+            console.log(JSON.stringify(instructionNode, undefined, 2));
+            throw e;
+          }
           break;
         case AddressingMode.AddressRegisterIndirectIndexDisplacement:
         case AddressingMode.ProgramCounterIndirectIndexDisplacement:
@@ -780,7 +786,6 @@ instructions['bra'] = {
   defaultSize: OperandSize.Short,
   relativeTarget: true,
   signedTarget: true,
-  overrideAbsoluteSize: OperandSize.Short
 }
 
 instructions['jsr'] = {
@@ -1290,6 +1295,7 @@ instructions['btst'] = {
   format: 0b0000_0001_0000_0000,
   destinationEffectiveAddressOffset: 5,
   arguments: 2,
+  sizes: OperandSize.Byte | OperandSize.Long,
   addressingModes: [
     AddressingMode.DataRegisterDirect | AddressingMode.Immediate,
 
@@ -1317,8 +1323,17 @@ instructions['btst'] = {
     AddressingMode.ProgramCounterIndirectDisplacement |
     AddressingMode.ProgramCounterIndirectIndexDisplacement
   ],
+  defaultSize: OperandSize.Word,
   sourceRegisterOffset: 11,
-  sourceRegisterIsImmediateOffset: 8
+  sourceRegisterIsImmediateOffset: 11,
+  encoder (instruction, program, block, offset) {
+    if (isImmediate(instruction.arguments[0])) {
+      return 0b0000_1000_0000_0000 | getEffectiveAddress(instruction.arguments[1]);
+    }
+    else {
+      return 0b0000_0001_0000_0000 | getEffectiveAddress(instruction.arguments[1]);
+    }
+  },
 };
 
 

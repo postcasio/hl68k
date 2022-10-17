@@ -1,3 +1,4 @@
+include "constants.as"
 include "banks.as"
 include "dsl.as"
 include "../strings.as"
@@ -8,10 +9,15 @@ block script_header_block (@bank = rom_header) {
 
 block script_code_block (@bank = rom_code, @table = default_table) {
 init:
-	load_map $1
-	refresh_map
+	map_load $1
+	map_refresh
 	console_log .hello_world
+	party_init
+	object_freeze $0
+	object_create_party_char $0, $0
+	object_set_visible $0
+	object_thaw $0
 	rts
 .hello_world:
-	dc.b "Hello, world!\n\0"
+	dc.b "Hello, world!", NL, 0
 }

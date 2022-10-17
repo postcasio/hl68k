@@ -24,7 +24,11 @@ export class Block {
     this.locals[name].value = value;
   }
 
-  getLocal(name: string): ASTExpressionNode {
+  getLocal(name: string, throwIfMissing = false): ASTExpressionNode {
+    if (throwIfMissing && !this.locals[name]) {
+      throw new Error(`${name} is not defined`);
+    }
+
     return this.locals[name]?.value || createNumber(0, '');
   }
 }

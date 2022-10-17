@@ -16,6 +16,7 @@ export class Program {
   structs: Record<string, Struct> = {};
   romSize: number = 0;
   macroReplacementCount = 0;
+  complainMissingVariables = false;
 
   constructor() {
 
@@ -76,16 +77,17 @@ export class Program {
           if (node.type === NodeType.Statement) {
             size += encode(node.instruction, this, block, size + ramOffset + bankOffset).length;
           }
-          if (node.type === NodeType.Label) {
+          else if (node.type === NodeType.Label) {
             if (node.name.substring(0, 1) === '.') {
               block.setLocal(node.name, createNumber(ramOffset + bankOffset + size, node.path));
             }
             else {
               this.setGlobal(node.name, createNumber(ramOffset + bankOffset + size, node.path));
             }
-            console.log(`Label ${node.name} @ ${(ramOffset + bankOffset + size).toString(16).padStart(8, "0")}`);
           }
-
+          else {
+            throw new Error(`Unexpected node when sorting banks: ${JSON.stringify(node, undefined, 2)}`)
+          }
           return size;
         }, 0);
         block.bankOffset = bankOffset;
@@ -127,7 +129,11 @@ export class Program {
     this.globals[name].value = value;
   }
 
-  getGlobal(name: string): ASTExpressionNode {
+  getGlobal(name: string, throwIfMissing = false): ASTExpressionNode {
+    if (throwIfMissing && !this.globals[name]) {
+      throw new Error(`${name} is not defined`);
+    }
+
     return this.globals[name]?.value || createNumber(0, '');
   }
 
@@ -173,6 +179,10 @@ export class Program {
         left = asNumber(this.evaluate(node.left, block));
         left.value >>= asNumber(this.evaluate(node.right, block)).value;
         return left;
+      case NodeType.BitwiseNot:
+        left = asNumber(this.evaluate(node.operand, block));
+        left.value = ~(left.value);
+        return left;
       case NodeType.Number: return { ...node };
       case NodeType.Immediate:
       case NodeType.Absolute:
@@ -189,10 +199,10 @@ export class Program {
             throw new Error('Local variable not valid here');
           }
 
-          return this.evaluate(block.getLocal(node.identifier), block);
+          return this.evaluate(block.getLocal(node.identifier, this.complainMissingVariables), block);
         }
         else {
-          return this.evaluate(this.getGlobal(node.identifier), block);
+          return this.evaluate(this.getGlobal(node.identifier, this.complainMissingVariables), block);
         }
 
       default:   throw new Error(`Cannot evaluate ${node.type} node statically ${JSON.stringify(node)}`);
@@ -230,7 +240,6 @@ export class Program {
         const macro = this.getMacro(node.instruction.mnemonic);
 
         if (macro) {
-          console.log(`Replacing macro (outer) ${node.instruction.mnemonic}`);
           return this.macroReplace(node, block, macro, node.instruction.size).flat();
         }
       }
@@ -241,7 +250,7 @@ export class Program {
 
   macroReplace(statement: ASTStatementNode, block: Block | undefined, macro: Macro, operandSize: OperandSize): ASTBlockLevelNode[] {
     const instruction = statement.instruction;
-    console.log(`Replace macro ${instruction.mnemonic}`);
+
     const macroId = ++this.macroReplacementCount;
     const argumentIndexes = macro.arguments.reduce((r, arg, i) => {
       r[arg] = i;
@@ -271,12 +280,12 @@ export class Program {
       }
       return node;
     }) as ASTBlockLevelNode[];
-    console.log(`Applying macros to result of ${instruction.mnemonic} replacement`);
+
     return this.applyMacros(result.flat()).flat();
   }
 
   macroVariableRename(name: string, macroName: string, macroId: number) {
-    return `.___macro_${macroId}_${macroName}_${name}`;
+    return `.%%___macro_${macroId}_${macroName}_${name}`;
   }
 
   walkAll(callback: (node: ASTNode, block: Block) => ASTNode | ASTNode[]) {
@@ -301,6 +310,8 @@ export class Program {
     switch (astNode.type) {
       case NodeType.Statement:
         return callback({ ...astNode, instruction: this.walk(astNode.instruction, block, callback) as unknown as ASTInstructionNode}, block);
+      case NodeType.Repeat:
+        return callback({ ...astNode, code: this.walk(astNode.code, block, callback) as unknown as ASTBlockLevelNode[]}, block);
       case NodeType.Instruction:
         return callback({ ...astNode, arguments: this.walk(astNode.arguments, block, callback) as unknown as ASTExpressionNode[]}, block);
       case NodeType.Indirect:
@@ -319,6 +330,8 @@ export class Program {
       case NodeType.BitwiseOr:
       case NodeType.BitwiseAnd:
         return callback({ ...astNode, left: this.walk(astNode.left, block, callback) as ASTExpressionNode, right: this.walk(astNode.right, block, callback) as ASTExpressionNode }, block);
+      case NodeType.BitwiseNot:
+        return callback({ ...astNode, operand: this.walk(astNode.operand, block, callback) as ASTExpressionNode }, block);
       case NodeType.UnaryMinus:
       case NodeType.Immediate:
       case NodeType.Absolute:

@@ -12,11 +12,13 @@ include "palettes.as"
 include "tiles.as"
 include "tilesets/font.as"
 include "tilesets/test.as"
-include "script/interpreter/main.as"
+include "sprites.as"
+include "interpreter/main.as"
 include "map/main.as"
 include "maps/main.as"
 include "characters.as"
 include "game.as"
+include "titlescreen.as"
 
 block main_code (@bank = rom_code, @align = 8, @table = default_table) {
 
@@ -33,6 +35,7 @@ start:
     vdp_write_reg_imm VDP_REG_AUTOINCREMENT, #2
     vdp_write_reg_imm VDP_REG_BGCOLOR, #0
 
+    jsr reset_sprites
     jsr console_init
 
     lea palette_system,a0
@@ -57,7 +60,14 @@ start:
     lea global_script, a0
     jsr script_run
 
-    move.l ($1).l,d0
+game_loop:
+    jsr objects_update
+    jsr vdp_vblank_wait_start
+    jsr objects_copy_to_vram
+    bra.s game_loop
+
+
+    move.l ($99999999).l,d0
 
 .end:
     loop_forever
@@ -69,7 +79,7 @@ vblank:
 
 .align 4
 .strings:
-    dc.b "Testing console\n\0"
+    dc.b "Testing console", NL, 0
 
 .align 4
 .table:
