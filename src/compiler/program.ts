@@ -80,9 +80,11 @@ export class Program {
           else if (node.type === NodeType.Label) {
             if (node.name.substring(0, 1) === '.') {
               block.setLocal(node.name, createNumber(ramOffset + bankOffset + size, node.path));
+              block.setLocal(node.name + '.$rom', createNumber(romOffset + bankOffset + size, node.path));
             }
             else {
               this.setGlobal(node.name, createNumber(ramOffset + bankOffset + size, node.path));
+              this.setGlobal(node.name + '.$rom', createNumber(romOffset + bankOffset + size, node.path));
             }
           }
           else {

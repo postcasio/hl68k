@@ -14,4 +14,8 @@ map_test:
 	ds.w $1000, $a080, $a081, $a082, $a083, $a084, $a085
 .bg:
 	ds.w $1000, $0085
+.print "map header @= ", (map_test.$rom)
+.print "map fg =", .fg.$rom
+.print "map bg =", .bg.$rom
+.print "map fg size =", (.bg.$rom - .fg.$rom)
 }

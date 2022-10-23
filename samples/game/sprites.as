@@ -23,6 +23,14 @@ sprite_next_vram_addr: ds.l 1
 }
 
 block (@bank = rom_code) {
+.get_sprite_addr:
+  ; d0 = object ID
+  ; out a0 = object addr
+  subi.l #1, d0
+  mulu.w #sprite.$size, d0
+  addi.l #sprites, d0
+  movea.l d0, a0
+  rts
 reset_sprites:
 	move.l #VDP_SPRITE_VRAM_ADDR, (sprite_next_vram_addr).l
 	rts
@@ -40,36 +48,29 @@ sprite_size_to_tile_count:
 sprite_load_id:
 	; d0 = sprite id
 	; out d0 = tile number
+	jsr .get_sprite_addr
+sprite_load_addr:
+	movea.l a0,a1	; a1 = sprite addr
+	movea.l (sprite.tiles,a1),a0	; a0 = source tiles
+	move.b (sprite.frames,a1),d2	; d2 = frame count
+	move.b (sprite.size,a1),d0	; d0 = sprite size
+	andi.l #$ff, d0
+	jsr sprite_size_to_tile_count	; d0 = tile count
+	lsl.l #3, d0	; * 8
+	mulu.w d2, d0	; multiply by frame count
 
+	movea.l (sprite_next_vram_addr).l, a1	; a1 = dest addr (next free sprite vram spot)
+	movea.l a1, a2	; copy to a2 forl ater
 	; a0 = source addr
   	; a1 = dest addr
   	; d0 = count
-	pusha.l a2
-	push.l d2
-	lea sprites,a2
-	mulu.w #(sprite.$size/2),d0
-	movea.l (sprite.tiles,a2,d0.w),a0	; a0 = source tiles
-	move.b (sprite.frames,a2,d0.w),d2
-	move.b (sprite.size,a2,d0.w),d0
-	andi.l #$ff, d0
-	jsr sprite_size_to_tile_count
-	lsl.l #3, d0
-	moveq #0, d1
-
-	mulu.w d2, d0
-	move.l d0, d2
-	movea.l (sprite_next_vram_addr).l, a1	; a1 = dest addr
 	jsr vramcopy.l
 
-	move.l a1, d0
-	add.l d2, d0
-	move.l d0, (sprite_next_vram_addr).l	; increase next vram addr
+	move.l a1, (sprite_next_vram_addr).l	; increase next vram addr
 
-	move.l a1, d0
+	move.l a2, d0
 	lsr.l #5, d0				; d0 = tile index of original next vram addr
 
-	pop.l d2
-	popa.l a2
 	rts
 }
 

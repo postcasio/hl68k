@@ -65,6 +65,7 @@ block (@bank = rom_code) {
 .get_object_addr:
   ; d0 = object ID
   ; out a0 = object addr
+  subi.l #1, d0
   mulu.w #map_object.$size, d0
   addi.l #map_objects, d0
   movea.l d0, a0
@@ -78,15 +79,14 @@ object_create_char_addr:
   pusha.l a2
   movea.l a0, a2
   move.l d1, d0
-  jsr get_character_addr ; a0 = char addr
-  movea.l a0, a1
-  movea.l a2, a0  ; a1 = object addr
+  jsr get_character_addr
+  movea.l a0, a1  ; a1 = char addr
+  movea.l a2, a0  ; a0 = object addr
   moveq #0, d0
+
   move.b (character.sprite_id, a1), d0
   move.b d0, (map_object.sprite_id, a0)
-  loop_forever
   jsr sprite_load_id ; d0 = sprite tile number
-  loop_forever
   movea.l a2, a0
   move.w d0, (map_object.tile_number, a0)
 

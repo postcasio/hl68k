@@ -13,10 +13,10 @@ init:
 	map_refresh
 	console_log .hello_world
 	party_init
-	object_freeze $0
-	object_create_party_char $0, $0
-	object_set_visible $0
-	object_thaw $0
+	object_freeze $1
+	object_create_party_char $1, $0
+	object_set_visible $1
+	object_thaw $1
 	rts
 .hello_world:
 	dc.b "Hello, world!", NL, 0

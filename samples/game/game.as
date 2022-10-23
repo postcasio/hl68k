@@ -2,15 +2,6 @@ struct party {
   byte members[4]
 }
 
-struct character {
-  word current_hp
-  word max_hp
-  word current_mp
-  word max_mp
-  byte sprite_id
-  byte character_def_index
-  byte name[20]
-}
 
 block (@bank = ram_system) {
   parties:
@@ -19,11 +10,6 @@ block (@bank = ram_system) {
     }
   money: dc.l 0
   current_party: dc.b 0
-  .align 2
-  characters:
-    repeat (16) {
-      character {}
-    }
 }
 
 block (@bank = rom_data) {
@@ -42,10 +28,17 @@ party_init:
   move.b #0, (current_party).l
   move.l (initial_money).l, (money).l
 
+  moveq #1, d0
+  jsr get_characterdef_addr
+  movea.l a0,a1
+  moveq #1, d0
+  jsr get_character_addr
+  jsr character_init
   rts
 party_get_current:
   ; out a0 -> current party address
-  move.l (current_party).l, d0
+  moveq #0,d0
+  move.b (current_party).l, d0
   lea parties, a0
   lea (a0, d0.l), a0
   rts
@@ -54,14 +47,8 @@ party_get_character:
   ; a0 -> party address
   ; d0 -> party index
   ; out d0 -> character id
-  move.l (a0,d0.w), d0
+  moveq #0,d0
+  move.b (a0,d0.w), d0
   rts
 
-get_character_addr:
-  ; d0 -> character ID
-  ; out a0 -> character addr
-  mulu.w #character.$size, d0
-  addi.l #characters, d0
-  movea.l d0, a0
-  rts
 }

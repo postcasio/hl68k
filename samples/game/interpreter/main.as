@@ -189,17 +189,28 @@ script_execute_instruction:
 .script_instruction_party_init:
 	jmp party_init
 .script_instruction_object_create_party_char:
+	pusha.l a2
+	pusha.l a3
+	push.l d2
+	movea.l a0,a2	; a2 = script state
 	jsr script_get_next_byte ; object ID
-	push.l d0
-	push.l a0
-	jsr party_get_current
-	movea.l a0, a1
-	popa.l a0
-	jsr script_get_next_byte ; character ID
-	movea.l a1, a0
+	move.l d0, d2 ; d2 = object ID
+
+	jsr party_get_current ;
+	movea.l a0,a3	; a3 = party address
+
+	movea.l a2,a0	; a0 = script state
+	jsr script_get_next_byte ; party index
+
+	movea.l a3,a0	; a0 = party address
 	jsr party_get_character
-	move.l d0, d1
-	pop.l d0
+	move.l d0, d1	; d1 = char ID
+	move.l d2, d0  ; d0 = object ID
+	pop.l d2
+	popa.l a3
+	popa.l a2
+	; d0 = object ID
+	; d1 = character ID
 	jmp object_create_char
 .script_instruction_object_create_char:
 	jsr script_get_next_byte

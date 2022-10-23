@@ -18,6 +18,6 @@ load_tileset:
 .write:
     move.l (a0)+,d1
     vdp_write d1
-    dbra d0,.write
+    dbf d0,.write
     rts
 }

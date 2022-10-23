@@ -30,7 +30,7 @@ map_load_addr:
 	; a0 = map header address
 	pusha.l a0
 	lea active_map_header,a1
-	move.l #30, d0
+	move.l #map_header.$size, d0
 	jsr copy.l			; copy map header to active map header in RAM
 	popa.l a0			; restore map header address
 
@@ -40,13 +40,15 @@ map_load_addr:
 	vdp_write_reg VDP_REG_PLANE_SIZE, d0	; set plane size
 
 	pusha.l a0			; store map header address
+	movea.l a0, a1
 	move.w (map_header.bgOffset,a0),d0
-	adda.l d0,a0		; add bgOffset to header address
+	adda.l d0,a1		; add bgOffset to header address a1 = bg pointer
 
 	move.w (map_header.height,a0),d0
 	mulu.w (map_header.width,a0),d0
 	divu.w #2,d0		; calculate long count in d0
 	push.l d0
+	movea.l a1,a0
 	lea active_map_bg,a1
 	jsr copy.l			; copy bg to ram
 

@@ -87,8 +87,8 @@ const operandSizeBitsByte = {
 export const operandByteSizes = {
   [OperandSize.Short]: 1,
   [OperandSize.Byte]: 1,
-  [OperandSize.Long]: 2,
-  [OperandSize.Word]: 4
+  [OperandSize.Word]: 2,
+  [OperandSize.Long]: 4
 }
 
 export enum AddressingMode {
@@ -607,6 +607,26 @@ instructions['.align'] = {
     return Array(padding).fill(0);
   }
 };
+
+instructions['.print'] = {
+  mnemonic: '.print',
+  encoder: (instruction: ASTInstructionNode, program: Program, block: Block, offset: number) => {
+    if (program.complainMissingVariables) {
+      const {mnemonic, size: operandSize} = instruction;
+      const args = instruction.arguments.map(arg => {
+        const value = program.evaluate(arg, block);
+        if (isString(value)) {
+          return `"${value.value}"`;
+        }
+        else {
+          return `$${value.value.toString(16).padStart(8, '0')}`;
+        }
+      });
+      console.log(args.join(' '));
+    }
+    return [];
+  }
+}
 
 instructions['.incbin'] = {
   mnemonic: '.incbin',
